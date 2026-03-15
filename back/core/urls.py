@@ -17,7 +17,7 @@ router.register(r'mesas', MesaViewSet)
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/login/', login_real),
-    path('api/reports/dashboard/', dashboard_stats), # Crucial para el Dashboard
-    path('api/staff/create/', create_employee),      # Crucial para Staff
+    path('api/reports/dashboard/', dashboard_stats),
+    path('api/staff/create/', create_employee),
     path('api/', include(router.urls)),
 ]

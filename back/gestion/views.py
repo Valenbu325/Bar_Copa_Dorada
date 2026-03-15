@@ -19,7 +19,7 @@ from .serializers import (
 def create_employee(request):
     data = request.data
     try:
-        # 1. Create User
+        # 1. Create the Auth User
         username = data['email'].split('@')[0]
         user = User.objects.create_user(
             username=username,
@@ -34,7 +34,7 @@ def create_employee(request):
             rol=data['role'],
             sede=sede
         )
-        return Response({"message": "Staff created"}, status=status.HTTP_201_CREATED)
+        return Response({"message": "Staff created successfully"}, status=status.HTTP_201_CREATED)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -98,7 +98,46 @@ def dashboard_stats(request):
         "top_selling": top_selling
     })
 
-# --- VIEWSETS ---
+# --- BUSCAR PEDIDO ACTIVO DE UNA MESA ---
+@api_view(['GET'])
+def get_table_order(request, mesa_id):
+    try:
+        # Buscamos un pedido que NO esté pagado para esa mesa
+        pedido = Pedido.objects.filter(mesa_id=mesa_id, estado='OPEN').last()
+        if not pedido:
+            return Response({"items": []})
+        
+        # Serializamos los detalles (esto es un resumen simple para React)
+        detalles = DetallePedido.objects.filter(pedido=pedido)
+        items = [{
+            "id": d.producto.id,
+            "nombre": d.producto.nombre,
+            "qty": d.cantidad,
+            "precio_venta": d.precio_unitario
+        } for d in detalles]
+        
+        return Response({"pedido_id": pedido.id, "items": items, "total": pedido.total})
+    except Exception as e:
+        return Response({"error": str(e)}, status=400)
+
+# --- CERRAR CUENTA (PAGO) ---
+@api_view(['POST'])
+def pay_order(request, pedido_id):
+    try:
+        pedido = Pedido.objects.get(id=pedido_id)
+        pedido.estado = 'PAID'
+        pedido.save()
+        
+        # Liberar la mesa
+        mesa = pedido.mesa
+        mesa.activa = True
+        mesa.save()
+        
+        return Response({"message": "Account closed successfully"})
+    except Exception as e:
+        return Response({"error": str(e)}, status=400)
+
+# --- VIEWSETS STANDARD ---
 class SedeViewSet(viewsets.ModelViewSet):
     queryset = Sede.objects.all()
     serializer_class = SedeSerializer
@@ -117,8 +156,7 @@ class InventarioViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = Inventario.objects.all()
         sede_id = self.request.query_params.get('sede', None)
-        if sede_id:
-            queryset = queryset.filter(sede_id=sede_id)
+        if sede_id: queryset = queryset.filter(sede_id=sede_id)
         return queryset
 
 class PedidoViewSet(viewsets.ModelViewSet):
@@ -126,20 +164,31 @@ class PedidoViewSet(viewsets.ModelViewSet):
     serializer_class = PedidoSerializer
     def create(self, request, *args, **kwargs):
         data = request.data
-        mesa = Mesa.objects.get(id=data['mesa'])
-        mesero = Empleado.objects.get(id=data['mesero'])
-        pedido = Pedido.objects.create(mesa=mesa, mesero=mesero, total=data['total'])
-        for item in data['items']:
-            prod = Producto.objects.get(id=item['id'])
-            DetallePedido.objects.create(pedido=pedido, producto=prod, cantidad=item['qty'], precio_unitario=prod.precio_venta)
-            recetas = Receta.objects.filter(producto_final=prod)
-            if recetas.exists():
-                for r in recetas:
-                    inv = Inventario.objects.get(producto=r.ingrediente, sede=mesa.sede)
-                    inv.stock -= (r.cantidad_necesaria * item['qty'])
+        try:
+            mesa = Mesa.objects.get(id=data['mesa'])
+            # Se marca la mesa como ocupada al crear pedido
+            mesa.activa = False 
+            mesa.save()
+            
+            # Buscamos el ID del empleado (mesero)
+            mesero = Empleado.objects.get(id=data['mesero'])
+            pedido = Pedido.objects.create(mesa=mesa, mesero=mesero, total=data['total'], estado='OPEN')
+            
+            for item in data['items']:
+                prod = Producto.objects.get(id=item['id'])
+                DetallePedido.objects.create(pedido=pedido, producto=prod, cantidad=item['qty'], precio_unitario=prod.precio_venta)
+                
+                # Descuento de Stock
+                recetas = Receta.objects.filter(producto_final=prod)
+                if recetas.exists():
+                    for r in recetas:
+                        inv = Inventario.objects.get(producto=r.ingrediente, sede=mesa.sede)
+                        inv.stock -= (r.cantidad_necesaria * item['qty'])
+                        inv.save()
+                else:
+                    inv = Inventario.objects.get(producto=prod, sede=mesa.sede)
+                    inv.stock -= item['qty']
                     inv.save()
-            else:
-                inv = Inventario.objects.get(producto=prod, sede=mesa.sede)
-                inv.stock -= item['qty']
-                inv.save()
-        return Response({"status": "ok"}, status=status.HTTP_201_CREATED)
+            return Response({"status": "ok"}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
