@@ -1,15 +1,23 @@
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from gestion.views import SedeViewSet, ProductoViewSet, PedidoViewSet
+from gestion.views import (
+    SedeViewSet, ProductoViewSet, PedidoViewSet, 
+    InventarioViewSet, MesaViewSet, login_real, 
+    dashboard_stats, create_employee
+)
 
-# Creamos un router que genera las URLs automáticamente
 router = DefaultRouter()
 router.register(r'sedes', SedeViewSet)
 router.register(r'productos', ProductoViewSet)
 router.register(r'pedidos', PedidoViewSet)
+router.register(r'inventario', InventarioViewSet)
+router.register(r'mesas', MesaViewSet)
 
 urlpatterns = [
-    path('admin/', admin.site.register),
-    path('api/', include(router.urls)), # Todas nuestras rutas empezarán con /api/
+    path('admin/', admin.site.urls),
+    path('api/login/', login_real),
+    path('api/reports/dashboard/', dashboard_stats), # Crucial para el Dashboard
+    path('api/staff/create/', create_employee),      # Crucial para Staff
+    path('api/', include(router.urls)),
 ]

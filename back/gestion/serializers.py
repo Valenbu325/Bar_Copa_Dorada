@@ -1,28 +1,54 @@
 from rest_framework import serializers
-from .models import Sede, Producto, Empleado, Mesa, Pedido, DetallePedido
+from .models import Sede, Producto, Empleado, Mesa, Pedido, DetallePedido, Inventario, Receta
 
-# Traductor para Sedes
 class SedeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sede
         fields = '__all__'
 
-# Traductor para Productos (Ideal para el inventario en el Front)
+class EmpleadoSerializer(serializers.ModelSerializer):
+    username = serializers.ReadOnlyField(source='usuario.username')
+    sede_nombre = serializers.ReadOnlyField(source='sede.nombre')
+    class Meta:
+        model = Empleado
+        fields = ['id', 'username', 'rol', 'sede', 'sede_nombre']
+
 class ProductoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Producto
         fields = '__all__'
 
-# Traductor para Mesas
+# --- EL QUE FALTABA ---
 class MesaSerializer(serializers.ModelSerializer):
-    # Aquí le decimos qué sede es, trayendo el nombre
     sede_nombre = serializers.ReadOnlyField(source='sede.nombre')
     class Meta:
         model = Mesa
         fields = ['id', 'numero', 'sede', 'sede_nombre', 'capacidad', 'activa']
 
-# Traductor para Pedidos (El corazón del sistema)
+class InventarioSerializer(serializers.ModelSerializer):
+    producto_nombre = serializers.ReadOnlyField(source='producto.nombre')
+    alerta_stock = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Inventario
+        fields = ['id', 'producto', 'producto_nombre', 'sede', 'stock', 'stock_minimo', 'alerta_stock']
+
+    def get_alerta_stock(self, obj):
+        return obj.stock <= obj.stock_minimo
+
+class RecetaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Receta
+        fields = '__all__'
+
+class DetallePedidoSerializer(serializers.ModelSerializer):
+    producto_nombre = serializers.ReadOnlyField(source='producto.nombre')
+    class Meta:
+        model = DetallePedido
+        fields = ['id', 'producto', 'producto_nombre', 'cantidad', 'precio_unitario']
+
 class PedidoSerializer(serializers.ModelSerializer):
+    detalles = DetallePedidoSerializer(many=True, read_only=True)
     class Meta:
         model = Pedido
-        fields = '__all__'
+        fields = ['id', 'mesa', 'mesero', 'cajero', 'fecha_creacion', 'estado', 'total', 'detalles']

@@ -23,8 +23,14 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 frond(react):
 
 node.js 
-
+____________________________________________________________________________________________
+http://127.0.0.1:8000/admin/
 
 admin@gmail.com
 admin                     (usuario)
 admin1234                  (clave)
+
+
+mesero
+juan@copadorada.com
+juan1234
