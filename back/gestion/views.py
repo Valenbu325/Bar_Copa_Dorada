@@ -19,7 +19,6 @@ from .serializers import (
 def create_employee(request):
     data = request.data
     try:
-        # 1. Create the Auth User
         username = data['email'].split('@')[0]
         user = User.objects.create_user(
             username=username,
@@ -27,7 +26,6 @@ def create_employee(request):
             password=data['password'],
             first_name=data['name']
         )
-        # 2. Link to Employee Profile
         sede = Sede.objects.get(id=data['sedeId'])
         Empleado.objects.create(
             usuario=user,
@@ -83,12 +81,15 @@ def login_real(request):
 @api_view(['GET'])
 def dashboard_stats(request):
     today = timezone.now().date()
-    revenue = Pedido.objects.filter(fecha_creacion__date=today).aggregate(Sum('total'))['total__sum'] or 0
+    # Filtramos por pedidos pagados para reportar ingresos reales
+    revenue = Pedido.objects.filter(fecha_creacion__date=today, estado='PAID').aggregate(Sum('total'))['total__sum'] or 0
+    
+    # Corregido el filtro Q y la referencia a modelos
     branches = Sede.objects.annotate(
-        total_sales=Sum('mesa__pedido__total', filter=Q(mesa__pedido__fecha_creacion__date=today))
+        total_sales=Sum('mesa__pedido__total', filter=Q(mesa__pedido__fecha_creacion__date=today, mesa__pedido__estado='PAID'))
     ).values('nombre', 'total_sales')
     
-    top_selling = DetallePedido.objects.values('producto__nombre').annotate(
+    top_selling = DetallePedido.objects.filter(pedido__estado='PAID').values('producto__nombre').annotate(
         total_qty=Sum('cantidad')
     ).order_by('-total_qty')[:5]
 
@@ -102,12 +103,10 @@ def dashboard_stats(request):
 @api_view(['GET'])
 def get_table_order(request, mesa_id):
     try:
-        # Buscamos un pedido que NO esté pagado para esa mesa
         pedido = Pedido.objects.filter(mesa_id=mesa_id, estado='OPEN').last()
         if not pedido:
             return Response({"items": []})
         
-        # Serializamos los detalles (esto es un resumen simple para React)
         detalles = DetallePedido.objects.filter(pedido=pedido)
         items = [{
             "id": d.producto.id,
@@ -116,7 +115,11 @@ def get_table_order(request, mesa_id):
             "precio_venta": d.precio_unitario
         } for d in detalles]
         
-        return Response({"pedido_id": pedido.id, "items": items, "total": pedido.total})
+        return Response({
+            "pedido_id": pedido.id, 
+            "items": items, 
+            "total": pedido.total
+        })
     except Exception as e:
         return Response({"error": str(e)}, status=400)
 
@@ -128,7 +131,6 @@ def pay_order(request, pedido_id):
         pedido.estado = 'PAID'
         pedido.save()
         
-        # Liberar la mesa
         mesa = pedido.mesa
         mesa.activa = True
         mesa.save()
@@ -166,11 +168,9 @@ class PedidoViewSet(viewsets.ModelViewSet):
         data = request.data
         try:
             mesa = Mesa.objects.get(id=data['mesa'])
-            # Se marca la mesa como ocupada al crear pedido
             mesa.activa = False 
             mesa.save()
             
-            # Buscamos el ID del empleado (mesero)
             mesero = Empleado.objects.get(id=data['mesero'])
             pedido = Pedido.objects.create(mesa=mesa, mesero=mesero, total=data['total'], estado='OPEN')
             
@@ -178,17 +178,22 @@ class PedidoViewSet(viewsets.ModelViewSet):
                 prod = Producto.objects.get(id=item['id'])
                 DetallePedido.objects.create(pedido=pedido, producto=prod, cantidad=item['qty'], precio_unitario=prod.precio_venta)
                 
-                # Descuento de Stock
                 recetas = Receta.objects.filter(producto_final=prod)
                 if recetas.exists():
                     for r in recetas:
-                        inv = Inventario.objects.get(producto=r.ingrediente, sede=mesa.sede)
-                        inv.stock -= (r.cantidad_necesaria * item['qty'])
-                        inv.save()
+                        try:
+                            inv = Inventario.objects.get(producto=r.ingrediente, sede=mesa.sede)
+                            inv.stock -= (r.cantidad_necesaria * item['qty'])
+                            inv.save()
+                        except Inventario.DoesNotExist:
+                            continue # Si no hay registro de ese ingrediente en la sede, ignoramos para no romper la app
                 else:
-                    inv = Inventario.objects.get(producto=prod, sede=mesa.sede)
-                    inv.stock -= item['qty']
-                    inv.save()
-            return Response({"status": "ok"}, status=status.HTTP_201_CREATED)
+                    try:
+                        inv = Inventario.objects.get(producto=prod, sede=mesa.sede)
+                        inv.stock -= item['qty']
+                        inv.save()
+                    except Inventario.DoesNotExist:
+                        continue
+            return Response({"status": "ok", "pedido_id": pedido.id}, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({"error": str(e)}, status=400)

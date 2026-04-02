@@ -42,7 +42,7 @@ function App() {
   const [cart, setCart] = useState([]);
   const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '', role: 'waiter', sedeId: '' });
 
-  // --- CARGA DE DATOS ROBUSTA ---
+  // --- CARGA DE DATOS SINCRONIZADA ---
   const loadData = useCallback(async () => {
     if (!isLoggedIn) return;
     try {
@@ -87,10 +87,12 @@ function App() {
       alert("Employee Created!");
       setStaffForm({ name: '', email: '', password: '', role: 'waiter', sedeId: '' });
       loadData();
-    } catch (e) { alert("Check if email already exists."); }
+    } catch (e) { alert("Error creating staff"); }
   };
 
+  // 🔹 CORRECCIÓN 3: Protección contra producto undefined
   const addToCart = (product) => {
+    if (!product) return; // <-- NUEVA LÍNEA
     if (user.role === 'cashier') return;
     const targetSedeId = user.role === 'admin' ? selectedMesa.sede : user.sedeId;
     const branchStock = inventory.find(i => Number(i.producto) === Number(product.id) && Number(i.sede) === Number(targetSedeId));
@@ -126,8 +128,8 @@ function App() {
         <div className="bg-gray-900 p-10 rounded-[40px] border border-gray-800 w-full max-w-md shadow-2xl">
           <h1 className="text-4xl font-black italic uppercase text-white text-center mb-8 tracking-tighter text-yellow-500">Copa Dorada</h1>
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
-            <input type="email" required placeholder="Email" className="bg-black border border-gray-800 p-5 rounded-2xl text-white outline-none focus:border-yellow-500 transition-all" onChange={e => setLoginData({...loginData, email: e.target.value})} />
-            <input type="password" required placeholder="Password" className="bg-black border border-gray-800 p-5 rounded-2xl text-white outline-none focus:border-yellow-500 transition-all" onChange={e => setLoginData({...loginData, password: e.target.value})} />
+            <input type="email" required placeholder="Email Address" className="bg-black border border-gray-800 p-5 rounded-2xl text-white outline-none focus:border-yellow-500" onChange={e => setLoginData({...loginData, email: e.target.value})} />
+            <input type="password" required placeholder="Password" className="bg-black border border-gray-800 p-5 rounded-2xl text-white outline-none focus:border-yellow-500" onChange={e => setLoginData({...loginData, password: e.target.value})} />
             <button className="bg-yellow-500 text-black font-black py-5 rounded-2xl mt-4 uppercase active:scale-95 transition-transform cursor-pointer border-none w-full">Sign In</button>
           </form>
         </div>
@@ -140,7 +142,8 @@ function App() {
       <aside className="w-64 bg-black p-6 flex flex-col gap-8 border-r border-gray-800">
         <h1 className="text-yellow-500 font-black italic text-2xl tracking-tighter uppercase">Copa Dorada</h1>
         
-        <div className="p-4 bg-gray-900/50 rounded-3xl border border-gray-800">
+        {/* --- PROFILE CARD --- */}
+        <div className="p-4 bg-gray-900 rounded-3xl border border-gray-800">
           <div className="flex items-center gap-3 mb-2">
             <UserCircle className="text-yellow-500" size={32} />
             <div className="overflow-hidden">
@@ -174,11 +177,11 @@ function App() {
             </button>
         </header>
 
-        {/* 1. DASHBOARD */}
+        {/* --- 1. DASHBOARD --- */}
         {activeTab === 'Dashboard' && stats && (
           <div className="space-y-8 animate-in fade-in">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-gray-900 p-8 rounded-[35px] border border-gray-800 shadow-xl hover:border-yellow-500/30 transition-colors">
+              <div className="bg-gray-900 p-8 rounded-[35px] border border-gray-800 shadow-xl">
                 <p className="text-gray-500 font-bold text-xs uppercase mb-2">Today's Revenue</p>
                 <p className="text-5xl font-black text-white">${(stats.revenue_today || 0).toLocaleString()}</p>
               </div>
@@ -208,27 +211,27 @@ function App() {
           </div>
         )}
 
-        {/* 2. STAFF VIEW */}
+        {/* --- 2. STAFF VIEW --- */}
         {activeTab === 'Staff' && (
           <div className="bg-gray-900 p-10 rounded-[40px] border border-gray-800 max-w-2xl animate-in slide-in-from-top-4">
             <h3 className="text-2xl font-black italic uppercase mb-8 flex items-center gap-3"><UserPlus className="text-yellow-500"/> Add Employee</h3>
             <form onSubmit={handleCreateStaff} className="grid grid-cols-2 gap-4">
-              <input type="text" placeholder="Full Name" className="bg-black border border-gray-800 p-4 rounded-2xl text-white focus:border-yellow-500 outline-none" value={staffForm.name} onChange={e => setStaffForm({...staffForm, name: e.target.value})} required />
-              <input type="email" placeholder="Email" className="bg-black border border-gray-800 p-4 rounded-2xl text-white focus:border-yellow-500 outline-none" value={staffForm.email} onChange={e => setStaffForm({...staffForm, email: e.target.value})} required />
-              <input type="password" placeholder="Password" className="bg-black border border-gray-800 p-4 rounded-2xl text-white focus:border-yellow-500 outline-none" value={staffForm.password} onChange={e => setStaffForm({...staffForm, password: e.target.value})} required />
-              <select className="bg-black border border-gray-800 p-4 rounded-2xl text-white focus:border-yellow-500 outline-none cursor-pointer" value={staffForm.role} onChange={e => setStaffForm({...staffForm, role: e.target.value})}>
+              <input type="text" placeholder="Full Name" className="bg-black border border-gray-800 p-4 rounded-2xl text-white focus:border-yellow-500" value={staffForm.name} onChange={e => setStaffForm({...staffForm, name: e.target.value})} required />
+              <input type="email" placeholder="Email" className="bg-black border border-gray-800 p-4 rounded-2xl text-white focus:border-yellow-500" value={staffForm.email} onChange={e => setStaffForm({...staffForm, email: e.target.value})} required />
+              <input type="password" placeholder="Password" className="bg-black border border-gray-800 p-4 rounded-2xl text-white focus:border-yellow-500" value={staffForm.password} onChange={e => setStaffForm({...staffForm, password: e.target.value})} required />
+              <select className="bg-black border border-gray-800 p-4 rounded-2xl text-white focus:border-yellow-500 cursor-pointer" value={staffForm.role} onChange={e => setStaffForm({...staffForm, role: e.target.value})}>
                 <option value="waiter">Waiter</option><option value="cashier">Cashier</option><option value="admin">Admin</option>
               </select>
-              <select className="bg-black border border-gray-800 p-4 rounded-2xl text-white col-span-2 focus:border-yellow-500 outline-none cursor-pointer" value={staffForm.sedeId} onChange={e => setStaffForm({...staffForm, sedeId: e.target.value})} required>
+              <select className="bg-black border border-gray-800 p-4 rounded-2xl text-white col-span-2 focus:border-yellow-500 cursor-pointer" value={staffForm.sedeId} onChange={e => setStaffForm({...staffForm, sedeId: e.target.value})} required>
                 <option value="">Select Branch Assignment</option>
                 {sedes.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
               </select>
-              <button className="col-span-2 bg-yellow-500 text-black font-black py-5 rounded-2xl mt-4 hover:bg-yellow-400 active:scale-95 transition-all cursor-pointer uppercase border-none">Create User</button>
+              <button className="col-span-2 bg-yellow-500 text-black font-black py-5 rounded-2xl mt-4 hover:bg-yellow-400 active:scale-95 transition-all cursor-pointer border-none">Create User</button>
             </form>
           </div>
         )}
 
-        {/* 3. BRANCHES GRID (SEMÁFORO ROJO/VERDE) */}
+        {/* --- 3. BRANCHES GRID (SEMÁFORO ROJO/VERDE) --- */}
         {activeTab === 'Branches' && !selectedSede && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4">
             {sedes.map(s => {
@@ -251,7 +254,7 @@ function App() {
           </div>
         )}
 
-        {/* 4. STOCK EDITABLE POR SEDE */}
+        {/* --- 4. STOCK EDITABLE POR SEDE --- */}
         {activeTab === 'Branches' && selectedSede && (
           <div className="bg-gray-900 rounded-[40px] border border-gray-800 overflow-hidden animate-in fade-in">
             <div className="p-8 border-b border-gray-800 flex justify-between items-center">
@@ -284,7 +287,7 @@ function App() {
           </div>
         )}
 
-        {/* 5. INVENTORY GLOBAL VIEW */}
+        {/* --- 5. INVENTORY GLOBAL VIEW --- */}
         {activeTab === 'Inventory' && (
           <div className="bg-gray-900 rounded-[40px] border border-gray-800 overflow-hidden shadow-2xl animate-in fade-in">
             <table className="w-full text-left">
@@ -311,37 +314,49 @@ function App() {
           </div>
         )}
 
-        {/* 6. POS / ORDERS VIEW */}
+        {/* --- 6. POS / ORDERS VIEW --- */}
         {activeTab === 'Orders' && !selectedMesa && (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 animate-in zoom-in-95">
-            {mesas.filter(m => user.role === 'admin' ? true : m.sede === user.sedeId).map(m => (
-              <div 
-                key={m.id} 
-                onClick={() => setSelectedMesa(m)} 
-                className={`aspect-square border-2 rounded-[45px] flex flex-col items-center justify-center gap-4 transition-all active:scale-90 cursor-pointer group shadow-xl 
-                ${!m.activa ? 'bg-red-950/20 border-red-900/50 shadow-red-900/5' : 'bg-gray-900 border-gray-800 hover:border-yellow-500 shadow-black'}`}
-              >
-                <Coffee size={40} className={!m.activa ? 'text-red-500 animate-pulse' : 'text-yellow-500 group-hover:rotate-12 transition-transform'} />
-                <span className="font-black text-xl italic uppercase tracking-tighter">T-{m.numero}</span>
-                <span className={`text-[9px] font-black uppercase tracking-widest ${!m.activa ? 'text-red-500' : 'text-gray-500'}`}>{!m.activa ? 'Occupied' : 'Available'}</span>
-              </div>
-            ))}
+            {(mesas || [])
+              .filter(m => user?.role === 'admin' ? true : Number(m.sede) === Number(user?.sedeId))
+              .map(m => (
+                <div 
+                  key={m.id} 
+                  onClick={() => setSelectedMesa(m)} 
+                  className={`aspect-square border-2 rounded-[45px] flex flex-col items-center justify-center gap-4 transition-all active:scale-90 cursor-pointer group shadow-xl 
+                  ${!m.activa ? 'bg-red-950/20 border-red-900/50 shadow-red-900/5' : 'bg-gray-900 border-gray-800 hover:border-yellow-500 shadow-black'}`}
+                >
+                  <Coffee size={40} className={!m.activa ? 'text-red-500 animate-pulse' : 'text-yellow-500 group-hover:rotate-12 transition-transform'} />
+                  <span className="font-black text-xl italic uppercase tracking-tighter">T-{m.numero}</span>
+                  <span className={`text-[9px] font-black uppercase tracking-widest ${!m.activa ? 'text-red-500' : 'text-gray-500'}`}>{!m.activa ? 'Occupied' : 'Available'}</span>
+                </div>
+              ))}
           </div>
         )}
 
-        {/* 7. TICKET INTERFACE */}
+        {/* --- 7. TICKET INTERFACE --- */}
         {activeTab === 'Orders' && selectedMesa && (
           <div className="flex flex-col lg:flex-row gap-8 animate-in slide-in-from-right duration-500">
             <div className={`flex-1 ${user.role === 'cashier' ? 'hidden' : ''}`}>
               <button onClick={() => setSelectedMesa(null)} className="mb-6 flex items-center gap-2 text-gray-500 hover:text-white font-black uppercase text-xs active:scale-95 transition-all cursor-pointer bg-transparent border-none"><ArrowLeft size={16}/> Return</button>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {inventory.filter(i => i.sede === (user.role === 'admin' ? selectedMesa.sede : user.sedeId)).map(item => (
-                  <div key={item.id} onClick={() => addToCart(products.find(p => p.id === item.producto))} className={`p-6 bg-gray-900 border border-gray-800 rounded-[30px] transition-all active:scale-95 cursor-pointer ${item.stock > 0 ? 'hover:border-yellow-500 shadow-lg' : 'opacity-25 pointer-events-none'}`}>
-                    <h4 className="font-black uppercase italic leading-none mb-2">{item.producto_nombre}</h4>
-                    <p className="text-yellow-500 font-black text-2xl">${parseFloat(products.find(p => p.id === item.producto)?.precio_venta || 0).toLocaleString()}</p>
-                    <p className="text-[10px] text-gray-500 font-bold uppercase mt-3">Stock: {item.stock}</p>
-                  </div>
-                ))}
+                {/* 🔹 CORRECCIÓN 2 + 4: inventory seguro y producto protegido */}
+                {(inventory || []).filter(i => Number(i.sede) === Number(user?.role === 'admin' ? selectedMesa?.sede : user?.sedeId)).map(item => {
+                  const product = products.find(p => p.id === item.producto);
+                  return (
+                    <div 
+                      key={item.id} 
+                      onClick={() => {
+                        if (product) addToCart(product); // <-- NUEVO
+                      }} 
+                      className={`p-6 bg-gray-900 border border-gray-800 rounded-[30px] transition-all active:scale-95 cursor-pointer ${item.stock > 0 ? 'hover:border-yellow-500 shadow-lg' : 'opacity-25 pointer-events-none grayscale'}`}
+                    >
+                      <h4 className="font-black uppercase italic leading-none mb-2">{item.producto_nombre}</h4>
+                      <p className="text-yellow-500 font-black text-2xl">${parseFloat(product?.precio_venta || 0).toLocaleString()}</p>
+                      <p className="text-[10px] text-gray-500 font-bold uppercase mt-3">Stock: {item.stock}</p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
