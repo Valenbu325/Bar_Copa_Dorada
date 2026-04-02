@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
@@ -6,6 +8,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
 from django.db.models import Sum, Count, Q
+from django.db import transaction
 from django.utils import timezone
 
 from .models import Sede, Producto, Pedido, Inventario, Mesa, Empleado, Receta, DetallePedido
@@ -72,6 +75,7 @@ def login_real(request):
             "token": token.key,
             "name": f"{user.first_name} {user.last_name}" if user.first_name else user.username,
             "role": role,
+            "empleadoId": empleado.id if 'empleado' in locals() else None,
             "sedeId": sede_id,
             "sedeNombre": sede_nombre
         })
@@ -105,7 +109,7 @@ def get_table_order(request, mesa_id):
     try:
         pedido = Pedido.objects.filter(mesa_id=mesa_id, estado='OPEN').last()
         if not pedido:
-            return Response({"items": []})
+            return Response({"pedido_id": None, "items": [], "total": 0})
         
         detalles = DetallePedido.objects.filter(pedido=pedido)
         items = [{
@@ -123,19 +127,80 @@ def get_table_order(request, mesa_id):
     except Exception as e:
         return Response({"error": str(e)}, status=400)
 
+# --- REPORTE DE VENTAS (CSV) ---
+@api_view(['GET'])
+def reporte_ventas(request):
+    from datetime import datetime, timedelta
+    import csv
+    from django.http import HttpResponse
+    
+    fecha_inicio = request.query_params.get('fecha_inicio')
+    fecha_fin = request.query_params.get('fecha_fin')
+    sede_id = request.query_params.get('sede_id')
+    
+    try:
+        if not fecha_inicio or not fecha_fin:
+            return Response({"error": "Especifica fecha_inicio y fecha_fin en formato YYYY-MM-DD"}, status=400)
+        
+        fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+        fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date() + timedelta(days=1)
+        
+        query = Pedido.objects.filter(
+            estado='PAID',
+            fecha_cierre__date__gte=fecha_inicio,
+            fecha_cierre__date__lt=fecha_fin
+        ).select_related('mesa__sede').prefetch_related('detalles__producto')
+        
+        if sede_id:
+            query = query.filter(mesa__sede_id=sede_id)
+        
+        rows = []
+        for pedido in query:
+            for detalle in pedido.detalles.all():
+                ganancia = (detalle.precio_unitario - detalle.costo_compra) * detalle.cantidad
+                rows.append({
+                    'fecha_cierre': pedido.fecha_cierre.strftime('%Y-%m-%d %H:%M:%S'),
+                    'codigo_producto': detalle.producto.codigo,
+                    'nombre_producto': detalle.producto.nombre,
+                    'cantidad': detalle.cantidad,
+                    'costo_venta': float(detalle.precio_unitario),
+                    'costo_compra': float(detalle.costo_compra),
+                    'ganancia': float(ganancia),
+                    'sede': pedido.mesa.sede.nombre,
+                })
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="reporte_{fecha_inicio}_{fecha_fin}.csv"'
+        
+        writer = csv.DictWriter(response, fieldnames=['fecha_cierre', 'codigo_producto', 'nombre_producto', 'cantidad', 'costo_venta', 'costo_compra', 'ganancia', 'sede'])
+        writer.writeheader()
+        writer.writerows(rows)
+        
+        return response
+    except Exception as e:
+        return Response({"error": str(e)}, status=400)
+
 # --- CERRAR CUENTA (PAGO) ---
 @api_view(['POST'])
 def pay_order(request, pedido_id):
     try:
-        pedido = Pedido.objects.get(id=pedido_id)
-        pedido.estado = 'PAID'
-        pedido.save()
+        with transaction.atomic():
+            pedido = Pedido.objects.select_related('mesa').get(id=pedido_id)
+            cajero_id = request.data.get('cajero_id')
+            
+            if cajero_id:
+                cajero = Empleado.objects.get(id=cajero_id)
+                pedido.cajero = cajero
+            
+            pedido.estado = 'PAID'
+            pedido.fecha_cierre = timezone.now()
+            pedido.save()
+            
+            mesa = pedido.mesa
+            mesa.activa = True
+            mesa.save()
         
-        mesa = pedido.mesa
-        mesa.activa = True
-        mesa.save()
-        
-        return Response({"message": "Account closed successfully"})
+        return Response({"message": "Account closed successfully", "ganancia": float(pedido.ganancia_total)})
     except Exception as e:
         return Response({"error": str(e)}, status=400)
 
@@ -167,33 +232,75 @@ class PedidoViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         data = request.data
         try:
-            mesa = Mesa.objects.get(id=data['mesa'])
-            mesa.activa = False 
-            mesa.save()
-            
-            mesero = Empleado.objects.get(id=data['mesero'])
-            pedido = Pedido.objects.create(mesa=mesa, mesero=mesero, total=data['total'], estado='OPEN')
-            
-            for item in data['items']:
-                prod = Producto.objects.get(id=item['id'])
-                DetallePedido.objects.create(pedido=pedido, producto=prod, cantidad=item['qty'], precio_unitario=prod.precio_venta)
-                
-                recetas = Receta.objects.filter(producto_final=prod)
-                if recetas.exists():
-                    for r in recetas:
-                        try:
-                            inv = Inventario.objects.get(producto=r.ingrediente, sede=mesa.sede)
-                            inv.stock -= (r.cantidad_necesaria * item['qty'])
-                            inv.save()
-                        except Inventario.DoesNotExist:
-                            continue # Si no hay registro de ese ingrediente en la sede, ignoramos para no romper la app
-                else:
+            with transaction.atomic():
+                mesa = Mesa.objects.select_for_update().get(id=data['mesa'])
+                mesero = Empleado.objects.get(id=data['mesero'])
+                items = data.get('items', [])
+
+                if not items:
+                    return Response({"error": "No se enviaron items"}, status=status.HTTP_400_BAD_REQUEST)
+
+                pedido = Pedido.objects.filter(mesa=mesa, estado='OPEN').order_by('-fecha_creacion').first()
+                if not pedido:
+                    mesa.activa = False
+                    mesa.save()
+                    pedido = Pedido.objects.create(mesa=mesa, mesero=mesero, total=Decimal('0.00'), estado='OPEN')
+
+                inventory_deltas = {}
+                detail_rows = []
+                order_total = Decimal('0.00')
+                costo_total = Decimal('0.00')
+
+                for item in items:
+                    prod = Producto.objects.get(id=item['id'])
+                    qty = int(item['qty'])
+                    if qty <= 0:
+                        return Response({"error": "Cantidad inválida"}, status=status.HTTP_400_BAD_REQUEST)
+
+                    price = Decimal(str(prod.precio_venta))
+                    cost = Decimal(str(prod.costo_compra))
+                    order_total += price * qty
+                    costo_total += cost * qty
+                    detail_rows.append((prod, qty, price, cost))
+
+                    recetas = list(Receta.objects.filter(producto_final=prod).select_related('ingrediente'))
+                    if recetas:
+                        for receta in recetas:
+                            key = (receta.ingrediente_id, mesa.sede_id)
+                            inventory_deltas[key] = inventory_deltas.get(key, 0) + (receta.cantidad_necesaria * qty)
+                    else:
+                        key = (prod.id, mesa.sede_id)
+                        inventory_deltas[key] = inventory_deltas.get(key, 0) + qty
+
+                for (producto_id, sede_id), required_qty in inventory_deltas.items():
                     try:
-                        inv = Inventario.objects.get(producto=prod, sede=mesa.sede)
-                        inv.stock -= item['qty']
-                        inv.save()
+                        inv = Inventario.objects.select_for_update().get(producto_id=producto_id, sede_id=sede_id)
                     except Inventario.DoesNotExist:
-                        continue
+                        producto = Producto.objects.get(id=producto_id)
+                        return Response({"error": f"No hay inventario para {producto.nombre} en la sede"}, status=status.HTTP_400_BAD_REQUEST)
+
+                    if inv.stock < required_qty:
+                        return Response({"error": f"Stock insuficiente para {inv.producto.nombre}"}, status=status.HTTP_400_BAD_REQUEST)
+
+                for prod, qty, price, cost in detail_rows:
+                    DetallePedido.objects.create(
+                        pedido=pedido,
+                        producto=prod,
+                        cantidad=qty,
+                        precio_unitario=price,
+                        costo_compra=cost
+                    )
+
+                for (producto_id, sede_id), required_qty in inventory_deltas.items():
+                    inv = Inventario.objects.select_for_update().get(producto_id=producto_id, sede_id=sede_id)
+                    inv.stock -= required_qty
+                    inv.save()
+
+                pedido.total = (pedido.total or Decimal('0.00')) + order_total
+                pedido.costo_total = (pedido.costo_total or Decimal('0.00')) + costo_total
+                pedido.mesero = mesero
+                pedido.save()
+
             return Response({"status": "ok", "pedido_id": pedido.id}, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({"error": str(e)}, status=400)

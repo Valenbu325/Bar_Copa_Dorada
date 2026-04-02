@@ -34,3 +34,7 @@ admin1234                  (clave)
 mesero
 juan@copadorada.com
 juan1234
+
+cajero
+karen@copadorada.com
+karen1234

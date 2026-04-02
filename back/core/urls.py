@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 from gestion.views import (
     SedeViewSet, ProductoViewSet, PedidoViewSet, 
     InventarioViewSet, MesaViewSet, login_real, 
-    dashboard_stats, create_employee
+    dashboard_stats, create_employee, get_table_order, pay_order, reporte_ventas
 )
 
 router = DefaultRouter()
@@ -18,6 +18,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/login/', login_real),
     path('api/reports/dashboard/', dashboard_stats),
+    path('api/reports/ventas/', reporte_ventas),
     path('api/staff/create/', create_employee),
+    path('api/mesas/<int:mesa_id>/pedido-activo/', get_table_order),
+    path('api/pedidos/<int:pedido_id>/pay/', pay_order),
     path('api/', include(router.urls)),
 ]

@@ -77,11 +77,22 @@ class Pedido(models.Model):
     mesero = models.ForeignKey(Empleado, on_delete=models.RESTRICT, related_name='pedidos_tomados')
     cajero = models.ForeignKey(Empleado, on_delete=models.SET_NULL, null=True, blank=True, related_name='ventas_cerradas')
     fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_cierre = models.DateTimeField(null=True, blank=True)
     estado = models.CharField(max_length=20, choices=ESTADOS, default='OPEN')
     total = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    costo_total = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+
+    @property
+    def ganancia_total(self):
+        return self.total - self.costo_total
 
 class DetallePedido(models.Model):
     pedido = models.ForeignKey(Pedido, on_delete=models.CASCADE, related_name='detalles')
     producto = models.ForeignKey(Producto, on_delete=models.RESTRICT)
     cantidad = models.IntegerField(default=1)
     precio_unitario = models.DecimalField(max_digits=10, decimal_places=2)
+    costo_compra = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+
+    @property
+    def ganancia_total(self):
+        return (self.precio_unitario - self.costo_compra) * self.cantidad

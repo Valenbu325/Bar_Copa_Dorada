@@ -45,10 +45,14 @@ class DetallePedidoSerializer(serializers.ModelSerializer):
     producto_nombre = serializers.ReadOnlyField(source='producto.nombre')
     class Meta:
         model = DetallePedido
-        fields = ['id', 'producto', 'producto_nombre', 'cantidad', 'precio_unitario']
+        fields = ['id', 'producto', 'producto_nombre', 'cantidad', 'precio_unitario', 'costo_compra']
 
 class PedidoSerializer(serializers.ModelSerializer):
     detalles = DetallePedidoSerializer(many=True, read_only=True)
+    ganancia_total = serializers.SerializerMethodField()
     class Meta:
         model = Pedido
-        fields = ['id', 'mesa', 'mesero', 'cajero', 'fecha_creacion', 'estado', 'total', 'detalles']
+        fields = ['id', 'mesa', 'mesero', 'cajero', 'fecha_creacion', 'fecha_cierre', 'estado', 'total', 'costo_total', 'ganancia_total', 'detalles']
+
+    def get_ganancia_total(self, obj):
+        return float(obj.ganancia_total)
