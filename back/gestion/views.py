@@ -127,7 +127,29 @@ def get_table_order(request, mesa_id):
     except Exception as e:
         return Response({"error": str(e)}, status=400)
 
-# --- REPORTE DE VENTAS (CSV) ---
+# --- FECHAS DISPONIBLES CON VENTAS (para calendarios en reportes) ---
+@api_view(['GET'])
+def reporte_fechas_disponibles(request):
+    from datetime import datetime
+    
+    try:
+        sede_id = request.query_params.get('sede_id')
+        
+        query = Pedido.objects.filter(estado='PAID').values('fecha_cierre__date').distinct().order_by('fecha_cierre__date')
+        
+        if sede_id:
+            query = query.filter(mesa__sede_id=sede_id)
+        
+        fechas = [item['fecha_cierre__date'].isoformat() for item in query]
+        
+        return Response({
+            "fechas_disponibles": fechas,
+            "total_fechas": len(fechas)
+        })
+    except Exception as e:
+        return Response({"error": str(e)}, status=400)
+
+# --- REPORTE DE VENTAS MEJORADO (CSV con más columnas) ---
 @api_view(['GET'])
 def reporte_ventas(request):
     from datetime import datetime, timedelta
@@ -149,30 +171,64 @@ def reporte_ventas(request):
             estado='PAID',
             fecha_cierre__date__gte=fecha_inicio,
             fecha_cierre__date__lt=fecha_fin
-        ).select_related('mesa__sede').prefetch_related('detalles__producto')
+        ).select_related('mesa__sede', 'mesero__usuario', 'cajero__usuario').prefetch_related('detalles__producto')
         
         if sede_id:
             query = query.filter(mesa__sede_id=sede_id)
         
         rows = []
         for pedido in query:
+            # Obtener código de mesa formateado (G-01, R-01, ZT-01, etc.)
+            sede = pedido.mesa.sede
+            sede_prefijo_map = {
+                'Galerías': 'G',
+                'Restrepo': 'R',
+                'Zona T': 'ZT'
+            }
+            prefijo = sede_prefijo_map.get(sede.nombre, 'XX')
+            table_code = f"{prefijo}-{pedido.mesa.numero:02d}"
+            
+            # Nombres de empleados
+            nombre_mesero = pedido.mesero.usuario.first_name or pedido.mesero.usuario.username if pedido.mesero else "N/A"
+            nombre_cajero = pedido.cajero.usuario.first_name or pedido.cajero.usuario.username if pedido.cajero else "N/A"
+            
+            # Hora de cierre
+            hora_cierre = pedido.fecha_cierre.strftime('%H:%M:%S') if pedido.fecha_cierre else "N/A"
+            
             for detalle in pedido.detalles.all():
                 ganancia = (detalle.precio_unitario - detalle.costo_compra) * detalle.cantidad
                 rows.append({
-                    'fecha_cierre': pedido.fecha_cierre.strftime('%Y-%m-%d %H:%M:%S'),
+                    'fecha': pedido.fecha_cierre.strftime('%Y-%m-%d'),
+                    'hora_cierre': hora_cierre,
+                    'mesa_numero': pedido.mesa.numero,
+                    'table_code': table_code,
+                    'sede': sede.nombre,
+                    'nombre_mesero': nombre_mesero,
+                    'nombre_cajero': nombre_cajero,
                     'codigo_producto': detalle.producto.codigo,
                     'nombre_producto': detalle.producto.nombre,
                     'cantidad': detalle.cantidad,
-                    'costo_venta': float(detalle.precio_unitario),
+                    'precio_unitario': float(detalle.precio_unitario),
                     'costo_compra': float(detalle.costo_compra),
+                    'subtotal': float(detalle.precio_unitario * detalle.cantidad),
                     'ganancia': float(ganancia),
-                    'sede': pedido.mesa.sede.nombre,
+                    'margen_%': round((ganancia / (detalle.precio_unitario * detalle.cantidad) * 100) if detalle.precio_unitario * detalle.cantidad > 0 else 0, 2)
                 })
         
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="reporte_{fecha_inicio}_{fecha_fin}.csv"'
+        # Nombres de campos en orden lógico
+        fieldnames = [
+            'fecha', 'hora_cierre', 'mesa_numero', 'table_code', 'sede', 
+            'nombre_mesero', 'nombre_cajero', 'codigo_producto', 'nombre_producto', 
+            'cantidad', 'precio_unitario', 'costo_compra', 'subtotal', 'ganancia', 'margen_%'
+        ]
         
-        writer = csv.DictWriter(response, fieldnames=['fecha_cierre', 'codigo_producto', 'nombre_producto', 'cantidad', 'costo_venta', 'costo_compra', 'ganancia', 'sede'])
+        response = HttpResponse(content_type='text/csv; charset=utf-8')
+        response['Content-Disposition'] = f'attachment; filename="reporte_ventas_{fecha_inicio}_{fecha_fin}.csv"'
+        
+        # Agregar BOM para Excel reconozca UTF-8
+        response.write('\ufeff')
+        
+        writer = csv.DictWriter(response, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
         

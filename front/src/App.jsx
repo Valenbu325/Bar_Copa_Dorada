@@ -50,6 +50,7 @@ function App() {
   const [tableForm, setTableForm] = useState({ numero: '', sede: '', capacidad: 4 });
   const [inventoryForm, setInventoryForm] = useState({ producto: '', sede: '', stock: 0, stock_minimo: 5 });
   const [reportForm, setReportForm] = useState({ fecha_inicio: '', fecha_fin: '', sede_id: '' });
+  const [availableDates, setAvailableDates] = useState([]);
 
   const showToast = useCallback((message, type = 'info') => {
     const id = Date.now() + Math.random();
@@ -99,6 +100,21 @@ function App() {
       setCart([]);
     }
   }, []);
+
+  // --- CARGAR FECHAS DISPONIBLES PARA REPORTES ---
+  const loadAvailableDates = useCallback(async () => {
+    if (!isLoggedIn) return;
+    try {
+      const params = new URLSearchParams();
+      if (reportForm.sede_id) params.append('sede_id', reportForm.sede_id);
+      
+      const res = await axios.get(`${API_URL}/reports/fechas-disponibles/?${params.toString()}`);
+      setAvailableDates(res.data.fechas_disponibles || []);
+    } catch (e) {
+      console.error("Loading available dates failed", e);
+      setAvailableDates([]);
+    }
+  }, [isLoggedIn, reportForm.sede_id]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -347,6 +363,28 @@ function App() {
     }
   };
 
+  const getBranchPrefix = (sede) => {
+    const name = String(sede?.nombre || '').trim();
+    if (!name) return 'T';
+
+    const initials = name
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((word) => word[0])
+      .join('')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+
+    return (initials || 'T').slice(0, 3);
+  };
+
+  const getTableCode = (mesa) => {
+    const sede = sedes.find((branch) => Number(branch.id) === Number(mesa?.sede));
+    return `${getBranchPrefix(sede)}-${String(mesa?.numero || 0).padStart(2, '0')}`;
+  };
+
+  const formatCOP = (value) => `COP ${Number(value || 0).toLocaleString('es-CO')}`;
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 font-sans">
@@ -406,13 +444,23 @@ function App() {
       </aside>
 
         <main className="relative z-10 flex-1 p-4 sm:p-6 lg:p-10 overflow-y-auto">
-        <header className="mb-12 flex justify-between items-center">
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black uppercase italic tracking-tighter">
-                {selectedMesa ? `Table ${selectedMesa.numero}` : selectedSede ? selectedSede.nombre : activeTab}
+        <header className="mb-12 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-3 max-w-3xl">
+            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-yellow-500">Operations overview</p>
+            <h2 className="display-brand text-4xl sm:text-5xl lg:text-6xl uppercase text-white leading-none">
+              {selectedMesa ? `Table ${getTableCode(selectedMesa)}` : selectedSede ? selectedSede.nombre : activeTab}
             </h2>
-          <button onClick={loadData} className="p-3 panel-shell rounded-full text-yellow-500 active:scale-90 transition-all cursor-pointer border-none">
-                <RefreshCcw size={20} />
-            </button>
+            {activeTab === 'Orders' && (
+              <p className="text-sm sm:text-base text-gray-400 leading-relaxed">
+                {selectedMesa
+                  ? `Working ticket for ${getTableCode(selectedMesa)}. The branch code is shown first so service stays clear and fast.`
+                  : 'Tables are grouped by branch and labeled with ordered codes for quicker service.'}
+              </p>
+            )}
+          </div>
+          <button onClick={loadData} className="p-3 panel-shell rounded-full text-yellow-500 active:scale-90 transition-all cursor-pointer border-none shadow-xl shadow-black/20 self-start lg:self-auto">
+            <RefreshCcw size={20} />
+          </button>
         </header>
 
         {/* --- 2A. REPORTS --- */}
@@ -421,10 +469,56 @@ function App() {
             <div className="panel-shell p-10 rounded-[40px]">
               <h3 className="text-2xl font-black italic uppercase mb-8 flex items-center gap-3"><Download className="text-yellow-500" /> Sales Report</h3>
               <p className="text-gray-400 mb-8 max-w-3xl leading-relaxed">
-                Download a sales report in CSV format. Filter by date range and branch for detailed revenue and cost analysis.
+                Download a sales report in CSV format. Filter by date range and branch for detailed revenue and cost analysis with margins and employee info.
               </p>
 
-              <div className="bg-black/40 p-8 rounded-[30px] border border-gray-800 space-y-6 max-w-2xl">
+              <div className="bg-black/40 p-8 rounded-[30px] border border-gray-800 space-y-6 max-w-4xl">
+                {/* --- QUICK SELECT BUTTONS --- */}
+                <div>
+                  <label className="block text-xs font-black uppercase text-gray-400 mb-3 tracking-[0.1em]">⚡ Quick Select</label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <button
+                      onClick={() => {
+                        const today = new Date().toISOString().split('T')[0];
+                        setReportForm({...reportForm, fecha_inicio: today, fecha_fin: today});
+                      }}
+                      className="bg-gray-900 hover:bg-gray-800 text-white font-bold py-2 px-3 rounded-xl text-xs uppercase transition-all active:scale-95"
+                    >
+                      Today
+                    </button>
+                    <button
+                      onClick={() => {
+                        const today = new Date();
+                        const last7 = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+                        setReportForm({...reportForm, fecha_inicio: last7.toISOString().split('T')[0], fecha_fin: today.toISOString().split('T')[0]});
+                      }}
+                      className="bg-gray-900 hover:bg-gray-800 text-white font-bold py-2 px-3 rounded-xl text-xs uppercase transition-all active:scale-95"
+                    >
+                      Last 7 Days
+                    </button>
+                    <button
+                      onClick={() => {
+                        const today = new Date();
+                        const last30 = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+                        setReportForm({...reportForm, fecha_inicio: last30.toISOString().split('T')[0], fecha_fin: today.toISOString().split('T')[0]});
+                      }}
+                      className="bg-gray-900 hover:bg-gray-800 text-white font-bold py-2 px-3 rounded-xl text-xs uppercase transition-all active:scale-95"
+                    >
+                      Last 30 Days
+                    </button>
+                    <button
+                      onClick={() => {
+                        setReportForm({...reportForm, fecha_inicio: '', fecha_fin: ''});
+                        setAvailableDates([]);
+                      }}
+                      className="bg-gray-900 hover:bg-gray-800 text-white font-bold py-2 px-3 rounded-xl text-xs uppercase transition-all active:scale-95"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                {/* --- DATE INPUTS --- */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-black uppercase text-gray-400 mb-2">Start Date</label>
@@ -432,7 +526,10 @@ function App() {
                       type="date" 
                       className="w-full bg-black border border-gray-800 p-4 rounded-2xl text-white outline-none focus:border-yellow-500"
                       value={reportForm.fecha_inicio}
-                      onChange={e => setReportForm({...reportForm, fecha_inicio: e.target.value})}
+                      onChange={e => {
+                        setReportForm({...reportForm, fecha_inicio: e.target.value});
+                        loadAvailableDates();
+                      }}
                     />
                   </div>
                   <div>
@@ -441,21 +538,50 @@ function App() {
                       type="date" 
                       className="w-full bg-black border border-gray-800 p-4 rounded-2xl text-white outline-none focus:border-yellow-500"
                       value={reportForm.fecha_fin}
-                      onChange={e => setReportForm({...reportForm, fecha_fin: e.target.value})}
+                      onChange={e => {
+                        setReportForm({...reportForm, fecha_fin: e.target.value});
+                        loadAvailableDates();
+                      }}
                     />
                   </div>
                 </div>
+
+                {/* --- BRANCH SELECT --- */}
                 <div>
                   <label className="block text-sm font-black uppercase text-gray-400 mb-2">Branch (Optional)</label>
                   <select 
                     className="w-full bg-black border border-gray-800 p-4 rounded-2xl text-white outline-none focus:border-yellow-500"
                     value={reportForm.sede_id}
-                    onChange={e => setReportForm({...reportForm, sede_id: e.target.value})}
+                    onChange={e => {
+                      setReportForm({...reportForm, sede_id: e.target.value});
+                      loadAvailableDates();
+                    }}
                   >
                     <option value="">All branches</option>
                     {sedes.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                   </select>
                 </div>
+
+                {/* --- AVAILABLE DATES PREVIEW --- */}
+                {availableDates.length > 0 && (
+                  <div className="bg-black/60 p-6 rounded-2xl border border-yellow-500/30">
+                    <p className="text-xs font-black uppercase text-yellow-400 mb-3 tracking-[0.1em]">📅 Available Dates with Sales ({availableDates.length})</p>
+                    <div className="flex flex-wrap gap-2">
+                      {availableDates.slice(0, 10).map((date, i) => (
+                        <div key={i} className="bg-yellow-500/10 border border-yellow-500/30 px-3 py-1 rounded-lg text-xs text-yellow-400 font-bold">
+                          {new Date(date).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}
+                        </div>
+                      ))}
+                      {availableDates.length > 10 && (
+                        <div className="bg-yellow-500/10 border border-yellow-500/30 px-3 py-1 rounded-lg text-xs text-yellow-400 font-bold">
+                          +{availableDates.length - 10} more
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* --- DOWNLOAD BUTTON --- */}
                 <button 
                   onClick={handleDownloadReport}
                   disabled={loading}
@@ -475,11 +601,11 @@ function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
               <div className="panel-shell p-8 rounded-[35px]">
                 <p className="text-gray-500 font-bold text-xs uppercase mb-2">Today's Revenue</p>
-                <p className="text-5xl font-black text-white">${(stats.revenue_today || 0).toLocaleString()}</p>
+                <p className="text-5xl font-black text-white">{formatCOP(stats.revenue_today)}</p>
               </div>
-              <div className="bg-yellow-500 p-8 rounded-[35px] text-black shadow-lg shadow-yellow-500/25 transition-transform hover:scale-[1.02]">
-                <p className="font-bold text-xs uppercase mb-2">Active Branches</p>
-                <p className="text-5xl font-black">{sedes.length}</p>
+              <div className="hero-highlight p-8 rounded-[35px] text-black transition-transform hover:scale-[1.02]">
+                <p className="font-bold text-xs uppercase mb-2 tracking-[0.28em]">Active Branches</p>
+                <p className="text-5xl font-black leading-none">{sedes.length}</p>
               </div>
               <div className="panel-shell p-8 rounded-[35px]">
                 <p className="text-gray-500 font-bold text-xs uppercase mb-2">Low Stock Items</p>
@@ -492,7 +618,7 @@ function App() {
                 <div key={branch.nombre} className="mb-4">
                   <div className="flex justify-between text-xs font-bold uppercase mb-1">
                     <span>{branch.nombre}</span>
-                    <span>${(branch.total_sales || 0).toLocaleString()}</span>
+                    <span>{formatCOP(branch.total_sales)}</span>
                   </div>
                   <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
                     <div className="bg-yellow-500 h-full transition-all duration-1000" style={{ width: `${(branch.total_sales / (stats.revenue_today || 1)) * 100}%` }}></div>
@@ -744,21 +870,69 @@ function App() {
         {activeTab === 'Orders' && !selectedMesa && (
           <div>
             {((mesas || []).filter(m => user?.role === 'admin' ? true : Number(m.sede) === Number(user?.sedeId))).length > 0 ? (
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 animate-in zoom-in-95">
-                {(mesas || [])
-                  .filter(m => user?.role === 'admin' ? true : Number(m.sede) === Number(user?.sedeId))
-                  .map(m => (
-                    <div 
-                      key={m.id} 
-                      onClick={() => setSelectedMesa(m)} 
-                      className={`aspect-square border-2 rounded-[45px] flex flex-col items-center justify-center gap-4 transition-all active:scale-90 cursor-pointer group shadow-xl 
-                      ${!m.activa ? 'bg-red-950/20 border-red-900/50 shadow-red-900/5' : 'bg-gray-900 border-gray-800 hover:border-yellow-500 shadow-black'}`}
-                    >
-                      <Coffee size={40} className={!m.activa ? 'text-red-500 animate-pulse' : 'text-yellow-500 group-hover:rotate-12 transition-transform'} />
-                      <span className="font-black text-xl italic uppercase tracking-tighter">T-{m.numero}</span>
-                      <span className={`text-[9px] font-black uppercase tracking-widest ${!m.activa ? 'text-red-500' : 'text-gray-500'}`}>{!m.activa ? 'Occupied' : 'Available'}</span>
-                    </div>
-                  ))}
+              <div className="space-y-10 animate-in fade-in duration-300">
+                {(user?.role === 'admin' ? sedes : sedes.filter((branch) => Number(branch.id) === Number(user?.sedeId))).map((branch) => {
+                  const branchMesas = (mesas || [])
+                    .filter((mesa) => Number(mesa.sede) === Number(branch.id))
+                    .sort((a, b) => Number(a.numero) - Number(b.numero));
+
+                  if (branchMesas.length === 0) return null;
+
+                  const branchPrefix = getBranchPrefix(branch);
+
+                  return (
+                    <section key={branch.id} className="space-y-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-yellow-500">Branch</p>
+                          <h3 className="display-brand text-3xl sm:text-4xl uppercase text-white leading-none">{branch.nombre}</h3>
+                        </div>
+                        <div className="inline-flex items-center gap-3 rounded-full border border-gray-800/70 bg-black/30 px-4 py-2 self-start sm:self-auto backdrop-blur-sm">
+                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.8)]" />
+                          <span className="text-[10px] font-black uppercase tracking-[0.35em] text-gray-400">
+                            {branchMesas.length} tables · {branchPrefix}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5 lg:gap-6">
+                        {branchMesas.map((m) => (
+                          <button
+                            key={m.id}
+                            onClick={() => setSelectedMesa(m)}
+                            className={`group relative aspect-[1/1.05] overflow-hidden rounded-[34px] border p-5 text-left shadow-2xl transition-all active:scale-95 hover:-translate-y-1 cursor-pointer border-none
+                            ${!m.activa
+                              ? 'bg-gradient-to-br from-red-950/30 via-gray-950 to-black border-red-900/50 shadow-red-950/10'
+                              : 'bg-gradient-to-br from-gray-950 via-gray-900 to-black border-gray-800/70 hover:border-yellow-500/70 shadow-black/50'}`}
+                          >
+                            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(250,204,21,0.16),transparent_42%)] opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <div className="relative flex h-full flex-col justify-between gap-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <span className={`inline-flex rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.35em] ${m.activa ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
+                                  {m.activa ? 'Available' : 'Occupied'}
+                                </span>
+                                <Coffee size={24} className={!m.activa ? 'text-red-500 animate-pulse' : 'text-yellow-500 group-hover:rotate-12 transition-transform'} />
+                              </div>
+
+                              <div className="space-y-3">
+                                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-500">{branch.nombre}</p>
+                                <h4 className="display-brand text-5xl uppercase leading-none text-white">
+                                  {branchPrefix}-{String(m.numero).padStart(2, '0')}
+                                </h4>
+                                <div className="flex items-center justify-between gap-3 pt-2">
+                                  <span className="text-[10px] font-black uppercase tracking-[0.35em] text-gray-400">Seats {m.capacidad}</span>
+                                  <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.35em] ${m.activa ? 'bg-gray-800/80 text-gray-200' : 'bg-red-500/10 text-red-300'}`}>
+                                    {m.activa ? 'Ready' : 'Busy'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  );
+                })}
               </div>
             ) : (
               <div className="panel-shell rounded-[40px] p-10 max-w-2xl animate-in fade-in">
@@ -773,14 +947,14 @@ function App() {
 
         {/* --- 7. TICKET INTERFACE --- */}
         {activeTab === 'Orders' && selectedMesa && (
-          <div className="flex flex-col lg:flex-row gap-8 animate-in slide-in-from-right duration-500">
+          <div className="flex flex-col lg:flex-row gap-8 animate-in slide-in-from-right duration-500 ui-fade-up">
             <div className={`flex-1 ${user.role === 'cashier' ? 'hidden' : ''}`}>
-              <button onClick={() => setSelectedMesa(null)} className="mb-6 flex items-center gap-2 text-gray-500 hover:text-white font-black uppercase text-xs active:scale-95 transition-all cursor-pointer bg-transparent border-none"><ArrowLeft size={16}/> Return</button>
+              <button onClick={() => setSelectedMesa(null)} className="mb-6 flex items-center gap-2 text-gray-500 hover:text-white font-black uppercase text-xs active:scale-95 transition-all cursor-pointer bg-transparent border-none ui-press"><ArrowLeft size={16}/> Return</button>
               {activeOrder?.pedido_id && (
-                <div className="mb-6 bg-gray-900 border border-gray-800 rounded-[30px] p-6">
+                <div className="mb-6 bg-gray-900 border border-gray-800 rounded-[30px] p-6 ui-card">
                   <div className="flex items-center justify-between gap-4 mb-4">
                     <h4 className="text-xs font-black uppercase tracking-widest text-yellow-500">Open Order #{activeOrder.pedido_id}</h4>
-                    <span className="text-sm font-black text-white">${Number(activeOrder.total || 0).toLocaleString()}</span>
+                    <span className="text-sm font-black text-white">{formatCOP(activeOrder.total)}</span>
                   </div>
                   <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
                     {(activeOrder.items || []).map(item => (
@@ -789,7 +963,7 @@ function App() {
                           <p className="font-black uppercase text-white">{item.nombre}</p>
                           <p className="text-gray-500 font-bold uppercase">Qty: {item.qty}</p>
                         </div>
-                        <span className="font-black text-yellow-500">${Number(item.precio_venta || 0).toLocaleString()}</span>
+                        <span className="font-black text-yellow-500">{formatCOP(item.precio_venta)}</span>
                       </div>
                     ))}
                   </div>
@@ -805,10 +979,10 @@ function App() {
                       onClick={() => {
                         if (product) addToCart(product); // <-- NUEVO
                       }} 
-                      className={`p-6 bg-gray-900 border border-gray-800 rounded-[30px] transition-all active:scale-95 cursor-pointer ${item.stock > 0 ? 'hover:border-yellow-500 shadow-lg' : 'opacity-25 pointer-events-none grayscale'}`}
+                      className={`p-6 bg-gray-900 border border-gray-800 rounded-[30px] transition-all active:scale-95 cursor-pointer ui-card ui-fade-up ${item.stock > 0 ? 'hover:border-yellow-500 shadow-lg' : 'opacity-25 pointer-events-none grayscale'}`}
                     >
                       <h4 className="font-black uppercase italic leading-none mb-2">{item.producto_nombre}</h4>
-                      <p className="text-yellow-500 font-black text-2xl">${parseFloat(product?.precio_venta || 0).toLocaleString()}</p>
+                      <p className="text-yellow-500 font-black text-2xl">{formatCOP(product?.precio_venta)}</p>
                       <p className="text-[10px] text-gray-500 font-bold uppercase mt-3">Stock: {item.stock}</p>
                     </div>
                   );
@@ -819,7 +993,7 @@ function App() {
             <div className="w-full lg:w-[420px] glass-card p-6 lg:p-8 rounded-[40px] lg:rounded-[50px] shadow-2xl h-fit lg:sticky top-8">
               <h3 className="text-2xl font-black uppercase italic mb-8 border-b border-gray-800 pb-5 flex items-center gap-3"><ShoppingCart className="text-yellow-500" /> Account</h3>
               {activeOrder?.pedido_id && (
-                <div className="mb-6 p-5 rounded-[28px] border border-gray-800 bg-gray-900/50">
+                <div className="mb-6 p-5 rounded-[28px] border border-gray-800 bg-gray-900/50 ui-card">
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Current Order</p>
                     <span className="text-[10px] font-black uppercase tracking-widest text-yellow-500">#{activeOrder.pedido_id}</span>
@@ -831,7 +1005,7 @@ function App() {
                           <p className="font-black uppercase text-white">{item.nombre}</p>
                           <p className="text-gray-500 font-bold uppercase">Qty: {item.qty}</p>
                         </div>
-                        <span className="font-black text-white">${(Number(item.precio_venta || 0) * Number(item.qty || 0)).toLocaleString()}</span>
+                        <span className="font-black text-white">{formatCOP(Number(item.precio_venta || 0) * Number(item.qty || 0))}</span>
                       </div>
                     ))}
                   </div>
@@ -839,28 +1013,28 @@ function App() {
               )}
               <div className="flex flex-col gap-4 min-h-[150px]">
                 {cart.map(i => (
-                  <div key={i.id} className="flex justify-between items-center bg-gray-900/40 p-5 rounded-3xl border border-gray-800/50 transition-all hover:bg-gray-900">
+                  <div key={i.id} className="flex justify-between items-center bg-gray-900/40 p-5 rounded-3xl border border-gray-800/50 transition-all hover:bg-gray-900 ui-card">
                     <div>
                       <p className="text-xs font-black uppercase text-white truncate">{i.nombre}</p>
                       <div className="mt-2 flex items-center gap-2">
-                        <button onClick={() => updateCartQty(i.id, -1)} className="h-7 w-7 rounded-lg bg-gray-800 text-white border-none flex items-center justify-center cursor-pointer hover:bg-gray-700"><Minus size={14} /></button>
+                        <button onClick={() => updateCartQty(i.id, -1)} className="qty-btn h-7 w-7 rounded-lg bg-gray-800 text-white border-none flex items-center justify-center cursor-pointer hover:bg-gray-700"><Minus size={14} /></button>
                         <input
                           type="number"
                           min="1"
                           value={i.qty}
                           onChange={(e) => setCartQty(i.id, e.target.value)}
-                          className="w-14 bg-black border border-gray-700 rounded-lg text-center text-xs font-black text-white p-1"
+                          className="qty-input w-14 bg-black border border-gray-700 rounded-lg text-center text-xs font-black text-white p-1"
                         />
-                        <button onClick={() => updateCartQty(i.id, 1)} className="h-7 w-7 rounded-lg bg-gray-800 text-white border-none flex items-center justify-center cursor-pointer hover:bg-gray-700"><Plus size={14} /></button>
-                        <button onClick={() => updateCartQty(i.id, 5)} className="h-7 px-2 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 text-[10px] font-black cursor-pointer">+5</button>
+                        <button onClick={() => updateCartQty(i.id, 1)} className="qty-btn h-7 w-7 rounded-lg bg-gray-800 text-white border-none flex items-center justify-center cursor-pointer hover:bg-gray-700"><Plus size={14} /></button>
+                        <button onClick={() => updateCartQty(i.id, 5)} className="qty-burst h-7 px-2 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 text-[10px] font-black cursor-pointer">+5</button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4"><span className="text-yellow-500 font-black text-sm">${(i.precio_venta * i.qty).toLocaleString()}</span><button onClick={() => setCart(cart.filter(c => c.id !== i.id))} className="text-red-500 hover:bg-red-500/10 p-2 rounded-xl active:scale-75 transition-all cursor-pointer border-none bg-transparent"><Trash2 size={16}/></button></div>
+                    <div className="flex items-center gap-4"><span className="text-yellow-500 font-black text-sm">{formatCOP(i.precio_venta * i.qty)}</span><button onClick={() => setCart(cart.filter(c => c.id !== i.id))} className="text-red-500 hover:bg-red-500/10 p-2 rounded-xl active:scale-75 transition-all cursor-pointer border-none bg-transparent"><Trash2 size={16}/></button></div>
                   </div>
                 ))}
               </div>
               <div className="mt-10 pt-8 border-t border-gray-800">
-                <div className="flex justify-between items-end mb-8"><span className="text-gray-500 font-black uppercase text-[10px]">Total Amount</span><span className="text-4xl font-black text-white leading-none">${cart.reduce((acc, i) => acc + (i.precio_venta * i.qty), 0).toLocaleString()}</span></div>
+                <div className="flex justify-between items-end mb-8"><span className="text-gray-500 font-black uppercase text-[10px]">Total Amount</span><span className="text-4xl font-black text-white leading-none">{formatCOP(cart.reduce((acc, i) => acc + (i.precio_venta * i.qty), 0))}</span></div>
                 {user.role === 'cashier' ? (
                   <button onClick={handleCollectOrder} disabled={!selectedOrderId && !activeOrder?.pedido_id} className="w-full bg-green-500 text-black font-black py-5 rounded-2xl flex items-center justify-center gap-2 hover:bg-green-400 active:scale-95 transition-all disabled:opacity-20 cursor-pointer uppercase border-none">COLLECT</button>
                 ) : (
