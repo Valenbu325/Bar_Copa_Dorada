@@ -13,6 +13,16 @@ class EmpleadoSerializer(serializers.ModelSerializer):
         model = Empleado
         fields = ['id', 'username', 'rol', 'sede', 'sede_nombre']
 
+
+class EmpleadoListSerializer(serializers.ModelSerializer):
+    email = serializers.ReadOnlyField(source='usuario.email')
+    nombre = serializers.ReadOnlyField(source='usuario.first_name')
+    username = serializers.ReadOnlyField(source='usuario.username')
+    sede_nombre = serializers.ReadOnlyField(source='sede.nombre')
+    class Meta:
+        model = Empleado
+        fields = ['id', 'email', 'nombre', 'username', 'rol', 'sede', 'sede_nombre']
+
 class ProductoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Producto
@@ -52,7 +62,10 @@ class PedidoSerializer(serializers.ModelSerializer):
     ganancia_total = serializers.SerializerMethodField()
     class Meta:
         model = Pedido
-        fields = ['id', 'mesa', 'mesero', 'cajero', 'fecha_creacion', 'fecha_cierre', 'estado', 'total', 'costo_total', 'ganancia_total', 'detalles']
+        fields = [
+            'id', 'mesa', 'mesero', 'cajero', 'fecha_creacion', 'fecha_cierre', 'estado',
+            'total', 'costo_total', 'ganancia_total', 'metodo_pago', 'detalles',
+        ]
 
     def get_ganancia_total(self, obj):
         return float(obj.ganancia_total)

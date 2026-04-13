@@ -2,11 +2,22 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { 
   LayoutDashboard, Package, ShoppingCart, Users, LogOut, MapPin, 
-  ArrowLeft, Coffee, Trash2, Lock, CreditCard, CookingPot, 
+  ArrowLeft, Coffee, Trash2, Lock, CreditCard, CookingPot, Banknote,
   AlertTriangle, TrendingUp, UserPlus, Save, UserCircle, RefreshCcw, CheckCircle2, BadgePlus, Download, Plus, Minus, Moon, Sun
 } from 'lucide-react';
 
 const API_URL = 'http://127.0.0.1:8000/api';
+const TOKEN_KEY = 'cd-token';
+
+function syncAxiosAuth() {
+  const t = localStorage.getItem(TOKEN_KEY);
+  if (t) {
+    axios.defaults.headers.common.Authorization = `Token ${t}`;
+  } else {
+    delete axios.defaults.headers.common.Authorization;
+  }
+}
+syncAxiosAuth();
 
 // --- COMPONENTE: ITEM DE NAVEGACIÓN ---
 const SidebarItem = ({ icon: Icon, label, active, onClick, hidden }) => {
@@ -30,8 +41,11 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState(null); 
   const [loginData, setLoginData] = useState({ email: '', password: '' });
+  const [loginLoading, setLoginLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [toasts, setToasts] = useState([]);
+  const [staffList, setStaffList] = useState([]);
+  const [paymentMethod, setPaymentMethod] = useState('CASH');
 
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [products, setProducts] = useState([]);
@@ -68,19 +82,33 @@ function App() {
   const loadData = useCallback(async () => {
     if (!isLoggedIn) return;
     try {
-      const resP = await axios.get(`${API_URL}/productos/`); setProducts(resP.data);
-      const resS = await axios.get(`${API_URL}/sedes/`); setSedes(resS.data);
-      const resM = await axios.get(`${API_URL}/mesas/`); setMesas(resM.data);
-      const resI = await axios.get(`${API_URL}/inventario/`); setInventory(resI.data);
-
-      if (user?.role === 'admin') {
-        try {
-          const resStats = await axios.get(`${API_URL}/reports/dashboard/`);
-          setStats(resStats.data);
-        } catch (e) { console.error("Stats failed"); }
-      }
+      const isAdmin = user?.role === 'admin';
+      const reqs = [
+        axios.get(`${API_URL}/productos/`),
+        axios.get(`${API_URL}/sedes/`),
+        axios.get(`${API_URL}/mesas/`),
+        axios.get(`${API_URL}/inventario/`),
+      ];
+      if (isAdmin) reqs.push(axios.get(`${API_URL}/reports/dashboard/`));
+      const out = await Promise.all(reqs);
+      setProducts(out[0].data);
+      setSedes(out[1].data);
+      setMesas(out[2].data);
+      setInventory(out[3].data);
+      if (isAdmin && out[4]) setStats(out[4].data);
     } catch (e) { console.error("Loading failed", e); }
   }, [isLoggedIn, user]);
+
+  const loadStaffList = useCallback(async () => {
+    if (!isLoggedIn || user?.role !== 'admin') return;
+    try {
+      const res = await axios.get(`${API_URL}/staff/`);
+      setStaffList(res.data || []);
+    } catch (e) {
+      console.error("Staff list failed", e);
+      setStaffList([]);
+    }
+  }, [isLoggedIn, user?.role]);
 
   const loadTableOrder = useCallback(async (mesaId) => {
     if (!mesaId) return;
@@ -119,6 +147,16 @@ function App() {
   useEffect(() => { loadData(); }, [loadData]);
 
   useEffect(() => {
+    if (activeTab === 'Staff' && user?.role === 'admin') loadStaffList();
+  }, [activeTab, user?.role, loadStaffList]);
+
+  useEffect(() => {
+    if (activeTab !== 'Inventory' && activeTab !== 'Orders') return undefined;
+    const id = setInterval(() => { loadData(); }, 50000);
+    return () => clearInterval(id);
+  }, [activeTab, loadData]);
+
+  useEffect(() => {
     if (!selectedMesa) {
       setActiveOrder(null);
       setSelectedOrderId(null);
@@ -132,13 +170,24 @@ function App() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setLoginLoading(true);
     try {
-      const res = await axios.post(`${API_URL}/login/`, loginData);
+      const res = await axios.post(`${API_URL}/login/`, loginData, { timeout: 15000 });
+      if (res.data?.token) {
+        localStorage.setItem(TOKEN_KEY, res.data.token);
+        syncAxiosAuth();
+      }
       setUser(res.data);
       setIsLoggedIn(true);
       setActiveTab(res.data.role === 'admin' ? 'Dashboard' : 'Orders');
-    } catch (err) { showToast("Invalid credentials.", 'error'); } finally { setLoading(false); }
+    } catch (err) { showToast("Invalid credentials.", 'error'); } finally { setLoginLoading(false); }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    syncAxiosAuth();
+    setIsLoggedIn(false);
+    setUser(null);
   };
 
   const updateStock = async (invId, newStock) => {
@@ -173,6 +222,7 @@ function App() {
       showToast("User created successfully.", 'success');
       setStaffForm({ name: '', email: '', password: '', confirmPassword: '', role: 'waiter', sedeId: '' });
       loadData();
+      loadStaffList();
     } catch (e) { showToast("Could not create user.", 'error'); }
   };
 
@@ -320,7 +370,10 @@ function App() {
 
     try {
       setLoading(true);
-      await axios.post(`${API_URL}/pedidos/${orderId}/pay/`, { cajero_id: user.empleadoId });
+      await axios.post(`${API_URL}/pedidos/${orderId}/pay/`, {
+        cajero_id: user.empleadoId,
+        metodo_pago: paymentMethod,
+      });
       showToast("Payment processed successfully.", 'success');
       setCart([]);
       setActiveOrder(null);
@@ -394,7 +447,20 @@ function App() {
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
             <input type="email" required placeholder="Email Address" className="bg-black border border-gray-800 p-5 rounded-2xl text-white outline-none focus:border-yellow-500" onChange={e => setLoginData({...loginData, email: e.target.value})} />
             <input type="password" required placeholder="Password" className="bg-black border border-gray-800 p-5 rounded-2xl text-white outline-none focus:border-yellow-500" onChange={e => setLoginData({...loginData, password: e.target.value})} />
-            <button className="btn-accent bg-yellow-500 text-black font-black py-5 rounded-2xl mt-4 uppercase active:scale-95 transition-transform cursor-pointer border-none w-full">Sign In</button>
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="btn-accent bg-yellow-500 text-black font-black py-5 rounded-2xl mt-4 uppercase active:scale-95 transition-transform cursor-pointer border-none w-full disabled:opacity-60 disabled:cursor-wait flex items-center justify-center gap-2 min-h-[56px]"
+            >
+              {loginLoading ? (
+                <>
+                  <RefreshCcw size={20} className="animate-spin shrink-0" aria-hidden />
+                  Entrando…
+                </>
+              ) : (
+                'Sign In'
+              )}
+            </button>
           </form>
         </div>
       </div>
@@ -438,7 +504,7 @@ function App() {
           <SidebarItem icon={ShoppingCart} label="POS / Orders" active={activeTab === 'Orders'} onClick={() => {setActiveTab('Orders'); setSelectedMesa(null);}} />
         </nav>
         
-        <button onClick={() => setIsLoggedIn(false)} className="w-full flex items-center justify-center lg:justify-start gap-3 p-4 text-red-500 font-black text-xs tracking-widest uppercase hover:bg-red-500/10 rounded-2xl transition-all active:scale-95 cursor-pointer border-none bg-transparent">
+        <button type="button" onClick={handleLogout} className="w-full flex items-center justify-center lg:justify-start gap-3 p-4 text-red-500 font-black text-xs tracking-widest uppercase hover:bg-red-500/10 rounded-2xl transition-all active:scale-95 cursor-pointer border-none bg-transparent">
           <LogOut size={16}/> Sign Out
         </button>
       </aside>
@@ -763,7 +829,46 @@ function App() {
 
         {/* --- 2. STAFF VIEW --- */}
         {activeTab === 'Staff' && (
-          <div className="panel-shell p-10 rounded-[40px] max-w-3xl animate-in slide-in-from-top-4 shadow-2xl shadow-black/30">
+          <div className="space-y-8 animate-in slide-in-from-top-4">
+          <div className="panel-shell p-10 rounded-[40px] max-w-4xl shadow-2xl shadow-black/30">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+              <h3 className="text-2xl font-black italic uppercase flex items-center gap-3"><Users className="text-yellow-500"/> Equipo registrado</h3>
+              <button
+                type="button"
+                onClick={() => loadStaffList()}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-gray-900 border border-gray-700 text-yellow-500 font-black text-xs uppercase tracking-widest hover:bg-gray-800 cursor-pointer border-none"
+              >
+                <RefreshCcw size={16} /> Actualizar lista
+              </button>
+            </div>
+            <div className="overflow-x-auto rounded-2xl border border-gray-800">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-900 text-[10px] font-black uppercase text-gray-500 tracking-widest">
+                  <tr>
+                    <th className="p-4">Nombre</th>
+                    <th className="p-4">Email</th>
+                    <th className="p-4">Rol</th>
+                    <th className="p-4">Sede</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {staffList.length === 0 ? (
+                    <tr><td colSpan={4} className="p-6 text-gray-500 font-medium">No hay datos o aún no se ha cargado la lista.</td></tr>
+                  ) : (
+                    staffList.map((row) => (
+                      <tr key={row.id} className="hover:bg-gray-900/50">
+                        <td className="p-4 font-bold text-white">{row.nombre || row.username || '—'}</td>
+                        <td className="p-4 text-gray-300">{row.email}</td>
+                        <td className="p-4"><span className="text-yellow-500 font-black uppercase text-xs">{row.rol}</span></td>
+                        <td className="p-4 text-gray-400">{row.sede_nombre || '—'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="panel-shell p-10 rounded-[40px] max-w-3xl shadow-2xl shadow-black/30">
             <h3 className="text-2xl font-black italic uppercase mb-2 flex items-center gap-3"><UserPlus className="text-yellow-500"/> Create User with Role</h3>
             <p className="text-xs uppercase tracking-wider text-gray-500 mb-8">Admins can create waiters, cashiers, and other admins.</p>
             <form onSubmit={handleCreateStaff} className="grid grid-cols-2 gap-4">
@@ -780,6 +885,7 @@ function App() {
               </select>
               <button className="col-span-2 bg-yellow-500 text-black font-black py-5 rounded-2xl mt-4 hover:bg-yellow-400 active:scale-95 transition-all cursor-pointer border-none">Create user</button>
             </form>
+          </div>
           </div>
         )}
 
@@ -1036,7 +1142,32 @@ function App() {
               <div className="mt-10 pt-8 border-t border-gray-800">
                 <div className="flex justify-between items-end mb-8"><span className="text-gray-500 font-black uppercase text-[10px]">Total Amount</span><span className="text-4xl font-black text-white leading-none">{formatCOP(cart.reduce((acc, i) => acc + (i.precio_venta * i.qty), 0))}</span></div>
                 {user.role === 'cashier' ? (
-                  <button onClick={handleCollectOrder} disabled={!selectedOrderId && !activeOrder?.pedido_id} className="w-full bg-green-500 text-black font-black py-5 rounded-2xl flex items-center justify-center gap-2 hover:bg-green-400 active:scale-95 transition-all disabled:opacity-20 cursor-pointer uppercase border-none">COLLECT</button>
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase text-gray-500 mb-2 tracking-widest">Método de pago (facturación)</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMethod('CASH')}
+                          className={`flex items-center justify-center gap-2 py-4 rounded-2xl font-black uppercase text-xs border-2 transition-all cursor-pointer ${
+                            paymentMethod === 'CASH' ? 'border-yellow-500 bg-yellow-500/15 text-yellow-400' : 'border-gray-800 bg-gray-900 text-gray-400 hover:border-gray-600'
+                          }`}
+                        >
+                          <Banknote size={18} /> Efectivo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMethod('CARD')}
+                          className={`flex items-center justify-center gap-2 py-4 rounded-2xl font-black uppercase text-xs border-2 transition-all cursor-pointer ${
+                            paymentMethod === 'CARD' ? 'border-yellow-500 bg-yellow-500/15 text-yellow-400' : 'border-gray-800 bg-gray-900 text-gray-400 hover:border-gray-600'
+                          }`}
+                        >
+                          <CreditCard size={18} /> Tarjeta
+                        </button>
+                      </div>
+                    </div>
+                    <button type="button" onClick={handleCollectOrder} disabled={!selectedOrderId && !activeOrder?.pedido_id} className="w-full bg-green-500 text-black font-black py-5 rounded-2xl flex items-center justify-center gap-2 hover:bg-green-400 active:scale-95 transition-all disabled:opacity-20 cursor-pointer uppercase border-none">Cobrar y cerrar</button>
+                  </div>
                 ) : (
                   <button onClick={handlePlaceOrder} disabled={cart.length === 0 || loading} className="w-full bg-yellow-500 text-black font-black py-5 rounded-2xl flex items-center justify-center gap-2 hover:bg-yellow-400 active:scale-95 transition-all disabled:opacity-20 cursor-pointer uppercase border-none tracking-widest">{activeOrder?.pedido_id ? 'ADD ITEMS' : 'SEND ORDER'}</button>
                 )}

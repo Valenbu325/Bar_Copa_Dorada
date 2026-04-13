@@ -81,6 +81,17 @@ class Pedido(models.Model):
     estado = models.CharField(max_length=20, choices=ESTADOS, default='OPEN')
     total = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     costo_total = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    METODOS_PAGO = (
+        ('CASH', 'Efectivo'),
+        ('CARD', 'Tarjeta'),
+    )
+    metodo_pago = models.CharField(
+        max_length=10,
+        choices=METODOS_PAGO,
+        blank=True,
+        null=True,
+        help_text='Medio de pago al cerrar cuenta (facturación)',
+    )
 
     @property
     def ganancia_total(self):

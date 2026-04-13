@@ -2,8 +2,9 @@ from decimal import Decimal
 
 from rest_framework import viewsets, status
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.authentication import TokenAuthentication
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
@@ -13,13 +14,32 @@ from django.utils import timezone
 
 from .models import Sede, Producto, Pedido, Inventario, Mesa, Empleado, Receta, DetallePedido
 from .serializers import (
-    SedeSerializer, ProductoSerializer, MesaSerializer, 
-    InventarioSerializer, PedidoSerializer
+    SedeSerializer, ProductoSerializer, MesaSerializer,
+    InventarioSerializer, PedidoSerializer, EmpleadoListSerializer,
 )
+
+
+def _require_admin(request):
+    if not request.user.is_authenticated:
+        return Response({'error': 'No autorizado'}, status=status.HTTP_401_UNAUTHORIZED)
+    if request.user.is_superuser:
+        return None
+    try:
+        if request.user.perfil.rol == 'admin':
+            return None
+    except Empleado.DoesNotExist:
+        pass
+    return Response({'error': 'Solo administradores'}, status=status.HTTP_403_FORBIDDEN)
+
 
 # --- 👤 CREATE STAFF (ADMIN ONLY) ---
 @api_view(['POST'])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
 def create_employee(request):
+    err = _require_admin(request)
+    if err:
+        return err
     data = request.data
     try:
         username = data['email'].split('@')[0]
@@ -38,6 +58,19 @@ def create_employee(request):
         return Response({"message": "Staff created successfully"}, status=status.HTTP_201_CREATED)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# --- 👥 LISTADO DE PERSONAL (ADMIN) ---
+@api_view(['GET'])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def list_staff(request):
+    err = _require_admin(request)
+    if err:
+        return err
+    empleados = Empleado.objects.select_related('usuario', 'sede').order_by('id')
+    return Response(EmpleadoListSerializer(empleados, many=True).data)
+
 
 # --- 🔐 LOGIN REAL BY EMAIL ---
 @api_view(['POST'])
@@ -61,7 +94,7 @@ def login_real(request):
             role = 'admin'
         
         try:
-            empleado = Empleado.objects.get(usuario=user)
+            empleado = Empleado.objects.select_related('sede').get(usuario=user)
             if not user.is_superuser:
                 role = empleado.rol.lower()
             if empleado.sede:
@@ -191,6 +224,7 @@ def reporte_ventas(request):
             # Nombres de empleados
             nombre_mesero = pedido.mesero.usuario.first_name or pedido.mesero.usuario.username if pedido.mesero else "N/A"
             nombre_cajero = pedido.cajero.usuario.first_name or pedido.cajero.usuario.username if pedido.cajero else "N/A"
+            metodo_txt = pedido.get_metodo_pago_display() if pedido.metodo_pago else 'N/A'
             
             # Hora de cierre
             hora_cierre = pedido.fecha_cierre.strftime('%H:%M:%S') if pedido.fecha_cierre else "N/A"
@@ -205,6 +239,7 @@ def reporte_ventas(request):
                     'sede': sede.nombre,
                     'nombre_mesero': nombre_mesero,
                     'nombre_cajero': nombre_cajero,
+                    'metodo_pago': metodo_txt,
                     'codigo_producto': detalle.producto.codigo,
                     'nombre_producto': detalle.producto.nombre,
                     'cantidad': detalle.cantidad,
@@ -217,9 +252,9 @@ def reporte_ventas(request):
         
         # Nombres de campos en orden lógico
         fieldnames = [
-            'fecha', 'hora_cierre', 'mesa_numero', 'table_code', 'sede', 
-            'nombre_mesero', 'nombre_cajero', 'codigo_producto', 'nombre_producto', 
-            'cantidad', 'precio_unitario', 'costo_compra', 'subtotal', 'ganancia', 'margen_%'
+            'fecha', 'hora_cierre', 'mesa_numero', 'table_code', 'sede',
+            'nombre_mesero', 'nombre_cajero', 'metodo_pago', 'codigo_producto', 'nombre_producto',
+            'cantidad', 'precio_unitario', 'costo_compra', 'subtotal', 'ganancia', 'margen_%',
         ]
         
         response = HttpResponse(content_type='text/csv; charset=utf-8')
@@ -240,6 +275,12 @@ def reporte_ventas(request):
 @api_view(['POST'])
 def pay_order(request, pedido_id):
     try:
+        metodo = request.data.get('metodo_pago') or request.data.get('payment_method')
+        if metodo not in ('CASH', 'CARD'):
+            return Response(
+                {'error': 'metodo_pago requerido: CASH (efectivo) o CARD (tarjeta)'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         with transaction.atomic():
             pedido = Pedido.objects.select_related('mesa').get(id=pedido_id)
             cajero_id = request.data.get('cajero_id')
@@ -249,6 +290,7 @@ def pay_order(request, pedido_id):
                 pedido.cajero = cajero
             
             pedido.estado = 'PAID'
+            pedido.metodo_pago = metodo
             pedido.fecha_cierre = timezone.now()
             pedido.save()
             
