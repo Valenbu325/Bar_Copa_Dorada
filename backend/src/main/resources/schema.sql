@@ -1,47 +1,126 @@
-DROP TABLE IF EXISTS inventario CASCADE;
-DROP TABLE IF EXISTS pedidos CASCADE;
-DROP TABLE IF EXISTS mesas CASCADE;
-DROP TABLE IF EXISTS usuarios CASCADE;
-DROP TABLE IF EXISTS sedes CASCADE;
+DROP TABLE IF EXISTS audit_logs CASCADE;
+DROP TABLE IF EXISTS payments CASCADE;
+DROP TABLE IF EXISTS order_details CASCADE;
+DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS inventory_movements CASCADE;
+DROP TABLE IF EXISTS inventory CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS payment_methods CASCADE;
+DROP TABLE IF EXISTS status_catalog CASCADE;
+DROP TABLE IF EXISTS branches CASCADE;
+DROP TABLE IF EXISTS roles CASCADE;
 
-CREATE TABLE sedes (
+CREATE TABLE roles (
   id BIGSERIAL PRIMARY KEY,
-  nombre VARCHAR(120) NOT NULL UNIQUE
+  code VARCHAR(40) NOT NULL UNIQUE,
+  name VARCHAR(100) NOT NULL
 );
 
-CREATE TABLE usuarios (
+CREATE TABLE branches (
   id BIGSERIAL PRIMARY KEY,
-  nombre VARCHAR(200) NOT NULL,
-  email VARCHAR(200) NOT NULL UNIQUE,
-  clave VARCHAR(200) NOT NULL,
-  rol VARCHAR(80) NOT NULL,
-  sede_id BIGINT NOT NULL REFERENCES sedes (id)
+  code VARCHAR(20) NOT NULL UNIQUE,
+  name VARCHAR(120) NOT NULL UNIQUE,
+  city VARCHAR(80) NOT NULL DEFAULT 'Bogota'
 );
 
-CREATE TABLE mesas (
+CREATE TABLE users (
   id BIGSERIAL PRIMARY KEY,
-  sede_id BIGINT NOT NULL REFERENCES sedes (id),
-  numero VARCHAR(20) NOT NULL,
-  cupo INTEGER NOT NULL DEFAULT 4,
-  ocupada BOOLEAN NOT NULL DEFAULT FALSE,
-  UNIQUE (sede_id, numero)
+  full_name VARCHAR(160) NOT NULL,
+  email VARCHAR(180) NOT NULL UNIQUE,
+  password VARCHAR(200) NOT NULL,
+  role_id BIGINT NOT NULL REFERENCES roles (id),
+  branch_id BIGINT NOT NULL REFERENCES branches (id),
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE pedidos (
+CREATE TABLE categories (
   id BIGSERIAL PRIMARY KEY,
-  sede_id BIGINT NOT NULL REFERENCES sedes (id),
-  mesa_id BIGINT REFERENCES mesas (id),
-  cliente VARCHAR(200),
-  items TEXT,
-  total NUMERIC(12, 2) NOT NULL DEFAULT 0,
-  estado VARCHAR(40) NOT NULL DEFAULT 'Abierto',
-  metodo_pago VARCHAR(40)
+  name VARCHAR(120) NOT NULL UNIQUE
 );
 
-CREATE TABLE inventario (
+CREATE TABLE products (
   id BIGSERIAL PRIMARY KEY,
-  sede_id BIGINT NOT NULL REFERENCES sedes (id),
-  producto VARCHAR(200) NOT NULL,
-  cantidad INTEGER NOT NULL DEFAULT 0,
-  unidad VARCHAR(40) NOT NULL DEFAULT 'unidad'
+  sku VARCHAR(30) NOT NULL UNIQUE,
+  name VARCHAR(200) NOT NULL,
+  category_id BIGINT NOT NULL REFERENCES categories (id),
+  cost_price NUMERIC(12,2) NOT NULL,
+  sale_price NUMERIC(12,2) NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE inventory (
+  id BIGSERIAL PRIMARY KEY,
+  branch_id BIGINT NOT NULL REFERENCES branches (id),
+  product_id BIGINT NOT NULL REFERENCES products (id),
+  quantity INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  UNIQUE (branch_id, product_id)
+);
+
+CREATE TABLE inventory_movements (
+  id BIGSERIAL PRIMARY KEY,
+  branch_id BIGINT NOT NULL REFERENCES branches (id),
+  product_id BIGINT NOT NULL REFERENCES products (id),
+  movement_type VARCHAR(10) NOT NULL CHECK (movement_type IN ('IN','OUT')),
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  reason VARCHAR(180),
+  created_by BIGINT REFERENCES users (id),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE status_catalog (
+  id BIGSERIAL PRIMARY KEY,
+  module VARCHAR(50) NOT NULL,
+  code VARCHAR(40) NOT NULL,
+  label VARCHAR(90) NOT NULL,
+  UNIQUE(module, code)
+);
+
+CREATE TABLE orders (
+  id BIGSERIAL PRIMARY KEY,
+  branch_id BIGINT NOT NULL REFERENCES branches (id),
+  waiter_id BIGINT NOT NULL REFERENCES users (id),
+  status_id BIGINT NOT NULL REFERENCES status_catalog (id),
+  total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  notes VARCHAR(300),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  closed_at TIMESTAMP
+);
+
+CREATE TABLE order_details (
+  id BIGSERIAL PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
+  product_id BIGINT NOT NULL REFERENCES products (id),
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  unit_price NUMERIC(12,2) NOT NULL,
+  line_total NUMERIC(12,2) NOT NULL
+);
+
+CREATE TABLE payment_methods (
+  id BIGSERIAL PRIMARY KEY,
+  code VARCHAR(40) NOT NULL UNIQUE,
+  label VARCHAR(80) NOT NULL
+);
+
+CREATE TABLE payments (
+  id BIGSERIAL PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
+  payment_method_id BIGINT NOT NULL REFERENCES payment_methods (id),
+  amount NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
+  paid_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  paid_by BIGINT REFERENCES users (id)
+);
+
+CREATE TABLE audit_logs (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT REFERENCES users (id),
+  action VARCHAR(120) NOT NULL,
+  entity VARCHAR(80) NOT NULL,
+  entity_id BIGINT,
+  details TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );

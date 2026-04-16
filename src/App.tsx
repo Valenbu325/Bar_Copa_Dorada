@@ -1,297 +1,400 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 const API = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api'
+const THEME_KEY = 'copa-theme'
 
-type Rol = 'Administrador' | 'Mesero' | 'Cajero'
+type Module = 'dashboard' | 'users' | 'inventory' | 'orders' | 'reports'
+type RoleCode = 'ADMIN' | 'WAITER' | 'CASHIER'
 
-interface Usuario {
+interface LoginResponse {
   id: number
   nombre: string
   email: string
-  rol: Rol
+  rol: RoleCode
   sede: string
 }
 
-interface Mesa {
+interface Branch {
   id: number
-  sede: string
-  numero: string
-  cupo: number
-  ocupada: boolean
+  code: string
+  name: string
 }
 
-interface Pedido {
+interface Role {
   id: number
-  sede: string
-  mesa: string
-  cliente: string
-  items: string
-  total: number
-  estado: string
-  metodoPago: string
+  code: RoleCode
+  name: string
 }
 
-interface InventarioItem {
+interface UserRow {
   id: number
-  sede: string
-  producto: string
-  cantidad: number
-  unidad: string
+  fullName: string
+  email: string
+  role: string
+  branchId: number
+  branchName: string
+  active: boolean
 }
 
-type Modulo = 'panel' | 'mesas' | 'pedidos' | 'inventario' | 'analisis'
-
-function quickSortRecursive(arr: number[]): number[] {
-  if (arr.length <= 1) return [...arr]
-  const pivot = arr[Math.floor(arr.length / 2)]
-  const left: number[] = []
-  const mid: number[] = []
-  const right: number[] = []
-  for (const n of arr) {
-    if (n < pivot) left.push(n)
-    else if (n > pivot) right.push(n)
-    else mid.push(n)
-  }
-  return [...quickSortRecursive(left), ...mid, ...quickSortRecursive(right)]
+interface Product {
+  id: number
+  sku: string
+  name: string
+  category: string
+  costPrice: number
+  salePrice: number
+  active: boolean
 }
 
-function insertionSortCantidad(items: InventarioItem[]): InventarioItem[] {
-  const out = [...items]
-  for (let i = 1; i < out.length; i++) {
-    const key = out[i]
-    let j = i - 1
-    while (j >= 0 && out[j].cantidad > key.cantidad) {
-      out[j + 1] = out[j]
-      j--
-    }
-    out[j + 1] = key
-  }
-  return out
+interface InventoryItem {
+  inventoryId: number
+  branchId: number
+  branchName: string
+  productId: number
+  productName: string
+  category: string
+  quantity: number
 }
 
-function sumaRecursiva(arr: number[], i = 0): number {
-  if (i >= arr.length) return 0
-  return arr[i] + sumaRecursiva(arr, i + 1)
+interface Order {
+  id: number
+  branchId: number
+  branchName: string
+  waiterId: number
+  waiterName: string
+  status: 'OPEN' | 'CLOSED'
+  totalAmount: number
+  createdAt: string
 }
 
-function modulosPorRol(rol: Rol): Modulo[] {
-  switch (rol) {
-    case 'Administrador':
-      return ['panel', 'mesas', 'pedidos', 'inventario', 'analisis']
-    case 'Mesero':
-      return ['panel', 'mesas', 'pedidos']
-    case 'Cajero':
-      return ['panel', 'pedidos', 'inventario']
-    default:
-      return ['panel']
-  }
+interface BranchSales {
+  branchId: number
+  branchName: string
+  totalSales: number
+}
+
+interface ReportData {
+  totalSales: number
+  salesByBranch: BranchSales[]
+  inventoryStatus: InventoryItem[]
+}
+
+function roleModules(role: RoleCode): Module[] {
+  if (role === 'ADMIN') return ['dashboard', 'users', 'inventory', 'orders', 'reports']
+  if (role === 'CASHIER') return ['dashboard', 'inventory', 'orders', 'reports']
+  return ['dashboard', 'orders']
 }
 
 export default function App() {
-  const [temaOscuro, setTemaOscuro] = useState(true)
-  const [sesion, setSesion] = useState<Usuario | null>(null)
-  const [usuarioInput, setUsuarioInput] = useState('')
-  const [passwordInput, setPasswordInput] = useState('')
-  const [mostrarPassword, setMostrarPassword] = useState(false)
-  const [errorLogin, setErrorLogin] = useState('')
+  const [themeDark, setThemeDark] = useState<boolean>(() => localStorage.getItem(THEME_KEY) !== 'light')
+  const [session, setSession] = useState<LoginResponse | null>(null)
+  const [module, setModule] = useState<Module>('dashboard')
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [savingUser, setSavingUser] = useState(false)
+  const [savingProduct, setSavingProduct] = useState(false)
+  const [savingMovement, setSavingMovement] = useState(false)
+  const [savingOrder, setSavingOrder] = useState(false)
+  const [closingOrderId, setClosingOrderId] = useState<number | null>(null)
 
-  const [sedes, setSedes] = useState<string[]>([])
-  const [sedeVisible, setSedeVisible] = useState('')
-  const [modulo, setModulo] = useState<Modulo>('panel')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
 
-  const [mesas, setMesas] = useState<Mesa[]>([])
-  const [pedidos, setPedidos] = useState<Pedido[]>([])
-  const [inventario, setInventario] = useState<InventarioItem[]>([])
-  const [cargando, setCargando] = useState(false)
-  const [errorDatos, setErrorDatos] = useState('')
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [roles, setRoles] = useState<Role[]>([])
+  const [selectedBranchId, setSelectedBranchId] = useState<number | ''>('')
 
-  const [nuevoPedido, setNuevoPedido] = useState({
-    cliente: '',
-    items: '',
-    total: '',
-    metodoPago: 'Efectivo' as 'Efectivo' | 'Tarjeta',
-    mesaId: '' as string | number,
-  })
+  const [users, setUsers] = useState<UserRow[]>([])
+  const [products, setProducts] = useState<Product[]>([])
+  const [inventory, setInventory] = useState<InventoryItem[]>([])
+  const [orders, setOrders] = useState<Order[]>([])
+  const [reports, setReports] = useState<ReportData | null>(null)
 
-  const fetchModuloData = useCallback(async (sede: string) => {
-    setCargando(true)
-    setErrorDatos('')
+  const [newUser, setNewUser] = useState({ fullName: '', email: '', password: '', roleCode: 'WAITER' as RoleCode, branchId: 0 })
+  const [newProduct, setNewProduct] = useState({ sku: '', name: '', categoryId: 1, costPrice: '', salePrice: '' })
+  const [movement, setMovement] = useState({ branchId: 0, productId: 0, movementType: 'IN', quantity: '', reason: '' })
+  const [newOrder, setNewOrder] = useState({ branchId: 0, waiterId: 0, notes: '', productId: 0, quantity: 1 })
+  const [closePayload, setClosePayload] = useState({ cashierId: 0, paymentMethodCode: 'CASH' })
+
+  const availableModules = session ? roleModules(session.rol) : []
+
+  const dashboardKpis = useMemo(() => {
+    const totalSales = reports?.totalSales ?? 0
+    const totalOrders = orders.length
+    const totalProducts = products.length
+    const activeOrders = orders.filter((o) => o.status === 'OPEN').length
+    return { totalSales, totalOrders, totalProducts, activeOrders }
+  }, [orders, products, reports])
+
+  useEffect(() => {
+    localStorage.setItem(THEME_KEY, themeDark ? 'dark' : 'light')
+  }, [themeDark])
+
+  const extractError = async (res: Response, fallback: string) => {
     try {
-      const [mesasRes, pedidosRes, invRes] = await Promise.all([
-        fetch(`${API}/mesas?sede=${encodeURIComponent(sede)}`),
-        fetch(`${API}/pedidos?sede=${encodeURIComponent(sede)}`),
-        fetch(`${API}/inventario?sede=${encodeURIComponent(sede)}`),
-      ])
-      if (!mesasRes.ok || !pedidosRes.ok || !invRes.ok) throw new Error('fetch')
-      const m = (await mesasRes.json()) as Mesa[]
-      const pRaw = (await pedidosRes.json()) as Record<string, unknown>[]
-      const p: Pedido[] = pRaw.map((row) => ({
-        id: Number(row.id),
-        sede: String(row.sede),
-        mesa: String(row.mesa),
-        cliente: String(row.cliente ?? ''),
-        items: String(row.items ?? ''),
-        total: Number(row.total),
-        estado: String(row.estado),
-        metodoPago: String(row.metodoPago ?? ''),
-      }))
-      const inv = (await invRes.json()) as InventarioItem[]
-      setMesas(m)
-      setPedidos(p)
-      setInventario(inv)
+      const data = (await res.json()) as { error?: string }
+      return data?.error || fallback
     } catch {
-      setErrorDatos('Sin conexión al backend o PostgreSQL. Revisa Docker y puerto 8080.')
-    } finally {
-      setCargando(false)
+      return fallback
     }
-  }, [])
+  }
 
-  useEffect(() => {
-    if (!sesion || !sedeVisible) return
-    void fetchModuloData(sedeVisible)
-  }, [sesion, sedeVisible, fetchModuloData])
-
-  useEffect(() => {
-    if (!sesion) return
-    void (async () => {
-      try {
-        const r = await fetch(`${API}/sedes`)
-        if (r.ok) setSedes(await r.json())
-      } catch {
-        /* ignore */
+  const fetchLookups = async () => {
+    const [branchesRes, rolesRes] = await Promise.all([fetch(`${API}/branches`), fetch(`${API}/roles`)])
+    if (branchesRes.ok) {
+      const b = (await branchesRes.json()) as Branch[]
+      setBranches(b)
+      if (!selectedBranchId && b[0]) setSelectedBranchId(b[0].id)
+      if (session && session.rol !== 'ADMIN') {
+        const userBranch = b.find((branch) => branch.name === session.sede)
+        if (userBranch) {
+          setSelectedBranchId(userBranch.id)
+          setNewOrder((prev) => ({ ...prev, branchId: userBranch.id }))
+          setMovement((prev) => ({ ...prev, branchId: userBranch.id }))
+          setNewUser((prev) => ({ ...prev, branchId: userBranch.id }))
+        }
       }
-    })()
-  }, [sesion])
+    }
+    if (rolesRes.ok) setRoles((await rolesRes.json()) as Role[])
+  }
 
-  const iniciarSesion = async () => {
-    setErrorLogin('')
+  const loadModuleData = async () => {
+    if (!session) return
+    setLoading(true)
+    setError('')
+    try {
+      const branchIdParam = selectedBranchId ? `?branchId=${selectedBranchId}` : ''
+      const [usersRes, productsRes, invRes, ordersRes, reportsRes] = await Promise.all([
+        fetch(`${API}/users`),
+        fetch(`${API}/products?sort=price`),
+        fetch(`${API}/inventory${branchIdParam}`),
+        fetch(`${API}/orders${branchIdParam}`),
+        fetch(`${API}/reports`),
+      ])
+      if (usersRes.ok) setUsers((await usersRes.json()) as UserRow[])
+      if (productsRes.ok) setProducts((await productsRes.json()) as Product[])
+      if (invRes.ok) setInventory((await invRes.json()) as InventoryItem[])
+      if (ordersRes.ok) setOrders((await ordersRes.json()) as Order[])
+      if (reportsRes.ok) setReports((await reportsRes.json()) as ReportData)
+    } catch {
+      setError('Could not load system data.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!session) return
+    void fetchLookups()
+    void loadModuleData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, selectedBranchId])
+
+  const login = async () => {
+    setError('')
+    setSuccess('')
     try {
       const res = await fetch(`${API}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: usuarioInput.trim(), password: passwordInput }),
+        body: JSON.stringify({ email, password }),
       })
       if (!res.ok) {
-        setErrorLogin('Credenciales incorrectas o API no disponible')
+      setError('Invalid credentials or API unavailable.')
         return
       }
-      const user = (await res.json()) as Usuario
-      setSesion(user)
-      setSedeVisible(user.sede)
-      setModulo('panel')
-      await fetchModuloData(user.sede)
+      const user = (await res.json()) as LoginResponse
+      setSession(user)
+      const branch = branches.find((b) => b.name === user.sede) ?? null
+      if (branch) {
+        setSelectedBranchId(branch.id)
+        setNewOrder((prev) => ({ ...prev, branchId: branch.id }))
+        setMovement((prev) => ({ ...prev, branchId: branch.id }))
+        setNewUser((prev) => ({ ...prev, branchId: branch.id }))
+      }
+      setModule('dashboard')
     } catch {
-      setErrorLogin('No se pudo conectar al backend (puerto 8080).')
+      setError('Could not connect to backend (port 8080).')
     }
   }
 
-  const cerrarSesion = () => {
-    setSesion(null)
-    setUsuarioInput('')
-    setPasswordInput('')
-    setModulo('panel')
+  const logout = () => {
+    setSession(null)
+    setEmail('')
+    setPassword('')
+    setModule('dashboard')
   }
 
-  const toggleMesa = async (id: number) => {
-    const res = await fetch(`${API}/mesas/${id}/toggle`, { method: 'PATCH' })
-    if (res.ok && sedeVisible) await fetchModuloData(sedeVisible)
+  const createUser = async () => {
+    setError('')
+    setSuccess('')
+    if (!newUser.fullName.trim() || !newUser.email.trim() || !newUser.password.trim()) {
+      setError('Complete full name, email and password to create user.')
+      return
+    }
+    setSavingUser(true)
+    const res = await fetch(`${API}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newUser),
+    })
+    if (res.ok) {
+      setNewUser({ fullName: '', email: '', password: '', roleCode: 'WAITER', branchId: Number(selectedBranchId || 0) })
+      await loadModuleData()
+      setSuccess('User created successfully.')
+      setSavingUser(false)
+      return
+    }
+    setError(await extractError(res, 'Could not create user.'))
+    setSavingUser(false)
   }
 
-  const crearPedido = async () => {
-    if (!sesion || !sedeVisible) return
-    const totalNum = Number(nuevoPedido.total.replace(',', '.')) || 0
-    const mesaId =
-      nuevoPedido.mesaId === '' || nuevoPedido.mesaId === 'none' ? null : Number(nuevoPedido.mesaId)
-    const res = await fetch(`${API}/pedidos`, {
+  const createProduct = async () => {
+    setError('')
+    setSuccess('')
+    if (!newProduct.sku.trim() || !newProduct.name.trim() || Number(newProduct.salePrice || 0) <= 0) {
+      setError('Complete SKU, name and a valid sale price.')
+      return
+    }
+    setSavingProduct(true)
+    const res = await fetch(`${API}/products`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        sede: sedeVisible,
-        mesaId,
-        cliente: nuevoPedido.cliente,
-        items: nuevoPedido.items,
-        total: totalNum,
-        metodoPago: nuevoPedido.metodoPago,
+        sku: newProduct.sku,
+        name: newProduct.name,
+        categoryId: newProduct.categoryId,
+        costPrice: Number(newProduct.costPrice || 0),
+        salePrice: Number(newProduct.salePrice || 0),
       }),
     })
     if (res.ok) {
-      setNuevoPedido({ cliente: '', items: '', total: '', metodoPago: 'Efectivo', mesaId: '' })
-      await fetchModuloData(sedeVisible)
+      setNewProduct({ sku: '', name: '', categoryId: 1, costPrice: '', salePrice: '' })
+      await loadModuleData()
+      setSuccess('Product created successfully.')
+      setSavingProduct(false)
+      return
     }
+    setError(await extractError(res, 'Could not create product.'))
+    setSavingProduct(false)
   }
 
-  const cerrarPedido = async (id: number) => {
-    const res = await fetch(`${API}/pedidos/${id}/cerrar`, { method: 'POST' })
-    if (res.ok && sedeVisible) await fetchModuloData(sedeVisible)
+  const createMovement = async () => {
+    setError('')
+    setSuccess('')
+    if (!movement.productId || Number(movement.quantity) <= 0) {
+      setError('Select a product and a valid quantity for the movement.')
+      return
+    }
+    setSavingMovement(true)
+    const res = await fetch(`${API}/inventory/movements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        branchId: Number(movement.branchId || selectedBranchId || 0),
+        productId: Number(movement.productId),
+        movementType: movement.movementType,
+        quantity: Number(movement.quantity),
+        reason: movement.reason,
+        userId: session?.id,
+      }),
+    })
+    if (res.ok) {
+      setMovement((prev) => ({ ...prev, quantity: '', reason: '' }))
+      await loadModuleData()
+      setSuccess('Inventory movement applied successfully.')
+      setSavingMovement(false)
+      return
+    }
+    setError(await extractError(res, 'Could not register inventory movement.'))
+    setSavingMovement(false)
   }
 
-  const navDisponible = sesion ? modulosPorRol(sesion.rol) : []
+  const createOrder = async () => {
+    setError('')
+    setSuccess('')
+    const branchId = Number(newOrder.branchId || selectedBranchId || 0)
+    const productId = Number(newOrder.productId || 0)
+    const quantity = Number(newOrder.quantity || 0)
+    if (!branchId || !productId || quantity <= 0) {
+      setError('You must select branch, product and valid quantity to save the order.')
+      return
+    }
 
-  const totalesPedidos = useMemo(() => pedidos.map((p) => p.total), [pedidos])
-  const ordenadosQuick = useMemo(() => quickSortRecursive([...totalesPedidos]), [totalesPedidos])
-  const inventarioOrdenado = useMemo(() => insertionSortCantidad([...inventario]), [inventario])
-  const sumaTotales = useMemo(() => sumaRecursiva(totalesPedidos), [totalesPedidos])
-
-  const exportarCSV = () => {
-    const rows = [
-      ['id', 'cliente', 'items', 'total', 'estado', 'metodoPago'],
-      ...pedidos.map((p) => [
-        String(p.id),
-        p.cliente,
-        p.items.replace(/\n/g, ' '),
-        String(p.total),
-        p.estado,
-        p.metodoPago,
-      ]),
-    ]
-    const blob = new Blob([rows.map((r) => r.join(';')).join('\n')], { type: 'text/csv;charset=utf-8' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `pedidos-${sedeVisible}.csv`
-    a.click()
-    URL.revokeObjectURL(a.href)
+    setSavingOrder(true)
+    const res = await fetch(`${API}/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        branchId,
+        waiterId: Number(newOrder.waiterId || session?.id || 0),
+        notes: newOrder.notes,
+        items: [{ productId, quantity }],
+      }),
+    })
+    if (res.ok) {
+      setNewOrder((prev) => ({ ...prev, notes: '', quantity: 1, productId: 0 }))
+      await loadModuleData()
+      setSuccess('Order saved successfully.')
+      setSavingOrder(false)
+      return
+    }
+    setError(await extractError(res, 'Could not save order.'))
+    setSavingOrder(false)
   }
 
-  if (!sesion) {
+  const closeOrder = async (orderId: number) => {
+    setError('')
+    setSuccess('')
+    setClosingOrderId(orderId)
+    const res = await fetch(`${API}/orders/${orderId}/close`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cashierId: Number(closePayload.cashierId || session?.id || 0),
+        paymentMethodCode: closePayload.paymentMethodCode,
+      }),
+    })
+    if (res.ok) {
+      await loadModuleData()
+      setSuccess(`Order #${orderId} closed successfully.`)
+      setClosingOrderId(null)
+      return
+    }
+    setError(await extractError(res, 'Could not close order.'))
+    setClosingOrderId(null)
+  }
+
+  if (!session) {
     return (
-      <main className={`login-page ${temaOscuro ? 'theme-dark' : 'theme-light'}`}>
-        <button type="button" className="theme-toggle fixed" onClick={() => setTemaOscuro((v) => !v)}>
-          {temaOscuro ? 'Modo claro' : 'Modo oscuro'}
+      <main className={`login-page ${themeDark ? 'theme-dark' : 'theme-light'}`}>
+        <button type="button" className="theme-toggle fixed" onClick={() => setThemeDark((v) => !v)}>
+          {themeDark ? 'Light mode' : 'Dark mode'}
         </button>
         <section className="login-card">
           <p className="brand">COPA DORADA</p>
-          <h1>Iniciar sesión</h1>
-          <p className="hint">Pragma Dev Studio</p>
-          <p className="hint">admin@gmail.com / admin1234</p>
-          <p className="hint">mesero@copadorada.com / mesero1234</p>
-          <p className="hint">cajero@copadorada.com / cajero1234</p>
+          <h1>Sign in</h1>
+          <p className="hint">Pragma Dev Studio ERP</p>
+          <p className="hint">Use your registered credentials.</p>
           <label>
-            Correo
-            <input value={usuarioInput} onChange={(e) => setUsuarioInput(e.target.value)} autoComplete="username" />
+            Email
+            <input value={email} onChange={(e) => setEmail(e.target.value)} />
           </label>
           <label>
-            Contraseña
+            Password
             <div className="password-wrap">
-              <input
-                type={mostrarPassword ? 'text' : 'password'}
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                autoComplete="current-password"
-              />
-              <button
-                type="button"
-                className="eye-toggle"
-                onClick={() => setMostrarPassword((v) => !v)}
-                aria-label="Mostrar u ocultar contraseña"
-              >
-                <span className={`mascot-eye ${mostrarPassword ? 'show' : 'hide'}`} />
+              <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} />
+              <button type="button" className="eye-toggle" onClick={() => setShowPassword((v) => !v)}>
+                <span className={`mascot-eye ${showPassword ? 'show' : 'hide'}`} />
               </button>
             </div>
           </label>
-          {errorLogin ? <p className="error">{errorLogin}</p> : null}
-          <button type="button" onClick={() => void iniciarSesion()}>
-            Entrar
+          {error ? <p className="error">{error}</p> : null}
+          <button type="button" onClick={() => void login()}>
+            Login
           </button>
         </section>
       </main>
@@ -299,224 +402,319 @@ export default function App() {
   }
 
   return (
-    <div className={`erp-shell ${temaOscuro ? 'theme-dark' : 'theme-light'}`}>
-      <header className="erp-top">
-        <div className="erp-brand">
+    <div className={`erp-shell ${themeDark ? 'theme-dark' : 'theme-light'}`}>
+      <aside className="erp-sidebar">
+        <div className="erp-logo">
           <strong>COPA DORADA</strong>
-          <span className="erp-user">
-            {sesion.nombre} · {sesion.rol} · sede: {sesion.sede}
-          </span>
+          <span>Smart Bar ERP</span>
         </div>
-        <div className="sede-row">
-          <label>
-            Sede
-            <select value={sedeVisible} onChange={(e) => setSedeVisible(e.target.value)}>
-              {(sedes.length ? sedes : [sesion.sede]).map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="theme-toggle fixed" style={{ position: 'static' }} onClick={() => setTemaOscuro((v) => !v)}>
-            {temaOscuro ? 'Claro' : 'Oscuro'}
-          </button>
-          <button type="button" className="pill" onClick={cerrarSesion}>
-            Salir
-          </button>
-        </div>
-      </header>
+        <nav className="erp-nav">
+          {availableModules.map((m) => (
+            <button key={m} type="button" className={module === m ? 'active' : ''} onClick={() => setModule(m)}>
+              {m === 'dashboard' && 'Dashboard'}
+              {m === 'users' && 'Users'}
+              {m === 'inventory' && 'Inventory'}
+              {m === 'orders' && 'Orders'}
+              {m === 'reports' && 'Reports'}
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-      <nav className="erp-nav" aria-label="Módulos">
-        {navDisponible.map((m) => (
-          <button key={m} type="button" className={modulo === m ? 'active' : ''} onClick={() => setModulo(m)}>
-            {m === 'panel' && 'Panel'}
-            {m === 'mesas' && 'Mesas'}
-            {m === 'pedidos' && 'Pedidos'}
-            {m === 'inventario' && 'Inventario'}
-            {m === 'analisis' && 'Algoritmos'}
-          </button>
-        ))}
-      </nav>
-
-      <main className="erp-main">
-        {errorDatos ? <p className="error">{errorDatos}</p> : null}
-        {cargando ? <p className="muted">Cargando…</p> : null}
-
-        {modulo === 'panel' && (
-          <div className="grid-cards">
-            <div className="card">
-              <h3>Resumen</h3>
-              <p className="muted">{sedeVisible}</p>
-              <p>
-                Mesas: {mesas.length} · Abiertos: {pedidos.filter((p) => p.estado === 'Abierto').length}
-              </p>
-            </div>
-            <div className="card">
-              <h3>Inventario</h3>
-              <p>{inventario.length} ítems</p>
-            </div>
+      <section className="erp-workspace">
+        <header className="erp-top">
+          <div className="erp-brand">
+            <strong>Pragma Dev Studio - Copa Dorada</strong>
+            <span className="erp-user">
+              {session.nombre} · {session.rol}
+            </span>
           </div>
-        )}
-
-        {modulo === 'mesas' && (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Mesa</th>
-                  <th>Cupo</th>
-                  <th>Estado</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {mesas.map((m) => (
-                  <tr key={m.id}>
-                    <td>{m.numero}</td>
-                    <td>{m.cupo}</td>
-                    <td>{m.ocupada ? 'Ocupada' : 'Libre'}</td>
-                    <td>
-                      <button type="button" className="pill" onClick={() => void toggleMesa(m.id)}>
-                        Alternar
-                      </button>
-                    </td>
-                  </tr>
+          <div className="sede-row">
+            <label>
+              Branch
+              <select
+                value={selectedBranchId}
+                onChange={(e) => setSelectedBranchId(Number(e.target.value))}
+                disabled={session.rol !== 'ADMIN'}
+              >
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
                 ))}
-              </tbody>
-            </table>
+              </select>
+            </label>
+            <button type="button" className="pill" onClick={() => setThemeDark((v) => !v)}>
+              {themeDark ? 'Light' : 'Dark'}
+            </button>
+            <button type="button" className="pill" onClick={logout}>
+              Logout
+            </button>
           </div>
-        )}
+        </header>
 
-        {modulo === 'pedidos' && (
-          <>
-            <div className="card" style={{ marginBottom: '1rem' }}>
-              <h3>Nuevo pedido</h3>
-              <div className="form-grid">
-                <label>
-                  Cliente
-                  <input value={nuevoPedido.cliente} onChange={(e) => setNuevoPedido((s) => ({ ...s, cliente: e.target.value }))} />
-                </label>
-                <label>
-                  Mesa
-                  <select value={nuevoPedido.mesaId} onChange={(e) => setNuevoPedido((s) => ({ ...s, mesaId: e.target.value }))}>
-                    <option value="">—</option>
-                    {mesas.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.numero}
+        <main className="erp-main">
+          {loading ? <p className="muted">Loading...</p> : null}
+          {error ? <p className="error">{error}</p> : null}
+          {success ? <p className="success">{success}</p> : null}
+
+          {module === 'dashboard' && (
+            <div className="grid-cards">
+              <div className="card">
+                <h3>Total Sales</h3>
+                <p className="kpi">$ {dashboardKpis.totalSales.toLocaleString('es-CO')}</p>
+              </div>
+              <div className="card">
+                <h3>Total Orders</h3>
+                <p className="kpi">{dashboardKpis.totalOrders}</p>
+              </div>
+              <div className="card">
+                <h3>Total Products</h3>
+                <p className="kpi">{dashboardKpis.totalProducts}</p>
+              </div>
+              <div className="card">
+                <h3>Active Orders</h3>
+                <p className="kpi">{dashboardKpis.activeOrders}</p>
+              </div>
+            </div>
+          )}
+
+          {module === 'users' && (
+            <>
+              <div className="card" style={{ marginBottom: '1rem' }}>
+                <h3>Create user</h3>
+                <div className="form-grid">
+                  <input placeholder="Full name" value={newUser.fullName} onChange={(e) => setNewUser((s) => ({ ...s, fullName: e.target.value }))} />
+                  <input placeholder="Email" value={newUser.email} onChange={(e) => setNewUser((s) => ({ ...s, email: e.target.value }))} />
+                  <input placeholder="Password" value={newUser.password} onChange={(e) => setNewUser((s) => ({ ...s, password: e.target.value }))} />
+                  <select value={newUser.roleCode} onChange={(e) => setNewUser((s) => ({ ...s, roleCode: e.target.value as RoleCode }))}>
+                    {roles.map((r) => (
+                      <option key={r.id} value={r.code}>
+                        {r.code}
                       </option>
                     ))}
                   </select>
-                </label>
-                <label>
-                  Ítems
-                  <textarea value={nuevoPedido.items} onChange={(e) => setNuevoPedido((s) => ({ ...s, items: e.target.value }))} />
-                </label>
-                <label>
-                  Total
-                  <input value={nuevoPedido.total} onChange={(e) => setNuevoPedido((s) => ({ ...s, total: e.target.value }))} />
-                </label>
-                <label>
-                  Pago
-                  <select
-                    value={nuevoPedido.metodoPago}
-                    onChange={(e) =>
-                      setNuevoPedido((s) => ({ ...s, metodoPago: e.target.value as 'Efectivo' | 'Tarjeta' }))
-                    }
-                  >
-                    <option value="Efectivo">Efectivo</option>
-                    <option value="Tarjeta">Tarjeta</option>
+                  <select value={newUser.branchId || selectedBranchId} onChange={(e) => setNewUser((s) => ({ ...s, branchId: Number(e.target.value) }))}>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
                   </select>
-                </label>
-                <div className="form-actions">
-                  <button type="button" onClick={() => void crearPedido()}>
-                    Registrar
-                  </button>
-                  <button type="button" className="pill" onClick={exportarCSV}>
-                    CSV
+                  <button type="button" onClick={() => void createUser()} disabled={savingUser}>
+                    {savingUser ? 'Saving...' : 'Save user'}
                   </button>
                 </div>
               </div>
-            </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Mesa</th>
-                    <th>Cliente</th>
-                    <th>Ítems</th>
-                    <th>Total</th>
-                    <th>Estado</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {pedidos.map((p) => (
-                    <tr key={p.id}>
-                      <td>{p.id}</td>
-                      <td>{p.mesa}</td>
-                      <td>{p.cliente}</td>
-                      <td>{p.items}</td>
-                      <td>{p.total.toLocaleString('es-CO')}</td>
-                      <td>
-                        <span className="badge">{p.estado}</span>
-                      </td>
-                      <td>
-                        {p.estado === 'Abierto' ? (
-                          <button type="button" className="pill pill-ok" onClick={() => void cerrarPedido(p.id)}>
-                            Cerrar
-                          </button>
-                        ) : null}
-                      </td>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Branch</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
+                  </thead>
+                  <tbody>
+                    {users.map((u) => (
+                      <tr key={u.id}>
+                        <td>{u.fullName}</td>
+                        <td>{u.email}</td>
+                        <td>{u.role}</td>
+                        <td>{u.branchName}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
 
-        {modulo === 'inventario' && (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Producto</th>
-                  <th>Cantidad</th>
-                  <th>Unidad</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inventario.map((i) => (
-                  <tr key={i.id}>
-                    <td>{i.producto}</td>
-                    <td>{i.cantidad}</td>
-                    <td>{i.unidad}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+          {module === 'inventory' && (
+            <>
+              <div className="grid-cards" style={{ marginBottom: '1rem' }}>
+                <div className="card">
+                  <h3>Create product</h3>
+                  <div className="form-grid">
+                    <input placeholder="SKU" value={newProduct.sku} onChange={(e) => setNewProduct((s) => ({ ...s, sku: e.target.value }))} />
+                    <input placeholder="Product name" value={newProduct.name} onChange={(e) => setNewProduct((s) => ({ ...s, name: e.target.value }))} />
+                    <input placeholder="Category ID" value={newProduct.categoryId} onChange={(e) => setNewProduct((s) => ({ ...s, categoryId: Number(e.target.value) }))} />
+                    <input placeholder="Cost Price" value={newProduct.costPrice} onChange={(e) => setNewProduct((s) => ({ ...s, costPrice: e.target.value }))} />
+                    <input placeholder="Sale Price" value={newProduct.salePrice} onChange={(e) => setNewProduct((s) => ({ ...s, salePrice: e.target.value }))} />
+                    <button type="button" onClick={() => void createProduct()} disabled={savingProduct}>
+                    {savingProduct ? 'Saving...' : 'Save product'}
+                    </button>
+                  </div>
+                </div>
+                <div className="card">
+                  <h3>Inventory movement</h3>
+                  <div className="form-grid">
+                    <select value={movement.branchId || selectedBranchId} onChange={(e) => setMovement((s) => ({ ...s, branchId: Number(e.target.value) }))}>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select value={movement.productId} onChange={(e) => setMovement((s) => ({ ...s, productId: Number(e.target.value) }))}>
+                      <option value={0}>Select product</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select value={movement.movementType} onChange={(e) => setMovement((s) => ({ ...s, movementType: e.target.value }))}>
+                      <option value="IN">IN</option>
+                      <option value="OUT">OUT</option>
+                    </select>
+                    <input placeholder="Quantity" value={movement.quantity} onChange={(e) => setMovement((s) => ({ ...s, quantity: e.target.value }))} />
+                    <input placeholder="Reason" value={movement.reason} onChange={(e) => setMovement((s) => ({ ...s, reason: e.target.value }))} />
+                    <button type="button" onClick={() => void createMovement()} disabled={savingMovement}>
+                      {savingMovement ? 'Applying...' : 'Apply movement'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Category</th>
+                      <th>Branch</th>
+                      <th>Quantity</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inventory.map((i) => (
+                      <tr key={i.inventoryId}>
+                        <td>{i.productName}</td>
+                        <td>{i.category}</td>
+                        <td>{i.branchName}</td>
+                        <td>{i.quantity}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
 
-        {modulo === 'analisis' && sesion.rol === 'Administrador' && (
-          <div className="grid-cards">
-            <div className="card">
-              <h3>QuickSort (recursivo)</h3>
-              <div className="algo-box">{JSON.stringify(ordenadosQuick)}</div>
+          {module === 'orders' && (
+            <>
+              <div className="card" style={{ marginBottom: '1rem' }}>
+                <h3>Create order</h3>
+                <div className="form-grid">
+                  <select value={newOrder.branchId || selectedBranchId} onChange={(e) => setNewOrder((s) => ({ ...s, branchId: Number(e.target.value) }))}>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select value={newOrder.productId} onChange={(e) => setNewOrder((s) => ({ ...s, productId: Number(e.target.value) }))}>
+                    <option value={0}>Select product</option>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} - {p.salePrice}
+                      </option>
+                    ))}
+                  </select>
+                  <input value={newOrder.quantity} onChange={(e) => setNewOrder((s) => ({ ...s, quantity: Number(e.target.value) || 1 }))} />
+                  <input placeholder="Notes" value={newOrder.notes} onChange={(e) => setNewOrder((s) => ({ ...s, notes: e.target.value }))} />
+                  <button type="button" onClick={() => void createOrder()} disabled={savingOrder}>
+                    {savingOrder ? 'Saving...' : 'Save order'}
+                  </button>
+                </div>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Branch</th>
+                      <th>Waiter</th>
+                      <th>Status</th>
+                      <th>Total</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orders.map((o) => (
+                      <tr key={o.id}>
+                        <td>{o.id}</td>
+                        <td>{o.branchName}</td>
+                        <td>{o.waiterName}</td>
+                        <td>
+                          <span className="badge">{o.status}</span>
+                        </td>
+                        <td>{o.totalAmount.toLocaleString('es-CO')}</td>
+                        <td>
+                          {o.status === 'OPEN' && session.rol !== 'WAITER' ? (
+                            <div className="form-actions">
+                              <select
+                                value={closePayload.paymentMethodCode}
+                                onChange={(e) => setClosePayload((s) => ({ ...s, paymentMethodCode: e.target.value }))}
+                              >
+                                <option value="CASH">CASH</option>
+                                <option value="CREDIT_CARD">CREDIT_CARD</option>
+                                <option value="DEBIT_CARD">DEBIT_CARD</option>
+                              </select>
+                              <button
+                                type="button"
+                                className="pill pill-ok"
+                                disabled={closingOrderId === o.id}
+                                onClick={() => {
+                                  setClosePayload((s) => ({ ...s, cashierId: session.id }))
+                                  void closeOrder(o.id)
+                                }}
+                              >
+                                {closingOrderId === o.id ? 'Closing...' : 'Close'}
+                              </button>
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {module === 'reports' && reports && (
+            <div className="grid-cards">
+              <div className="card">
+                <h3>Total Sales</h3>
+                <p className="kpi">$ {reports.totalSales.toLocaleString('es-CO')}</p>
+              </div>
+              <div className="card">
+                <h3>Sales by branch ranking</h3>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Branch</th>
+                        <th>Sales</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reports.salesByBranch.map((row) => (
+                        <tr key={row.branchId}>
+                          <td>{row.branchName}</td>
+                          <td>{row.totalSales.toLocaleString('es-CO')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-            <div className="card">
-              <h3>Inserción (iterativo)</h3>
-              <div className="algo-box">{inventarioOrdenado.map((i) => `${i.producto}: ${i.cantidad}`).join(' · ')}</div>
-            </div>
-            <div className="card">
-              <h3>Suma recursiva</h3>
-              <p>{sumaTotales.toLocaleString('es-CO')}</p>
-            </div>
-          </div>
-        )}
-      </main>
+          )}
+        </main>
+      </section>
     </div>
   )
 }
