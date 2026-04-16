@@ -18,6 +18,26 @@
   gap: 20px;
 }
 
+.role-switch {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-h);
+}
+
+.chip-active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+
 .hero-copy h1 {
   margin: 8px 0 10px;
 }
@@ -57,6 +77,11 @@ button.secondary {
   color: var(--text-h);
 }
 
+button.tiny {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
 .hero-media {
   display: grid;
   place-items: center;
@@ -68,6 +93,26 @@ button.secondary {
 .hero-media img {
   width: min(240px, 80%);
   height: auto;
+}
+
+.hero-media p {
+  margin: 8px 18px 0;
+  text-align: center;
+  font-size: 14px;
+}
+
+.nav-modules {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nav-modules span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-h);
 }
 
 .stats-grid {
@@ -135,6 +180,7 @@ button.secondary {
   padding: 10px;
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 10px;
 }
 
@@ -165,6 +211,50 @@ button.secondary {
   color: #991b1b;
 }
 
+.inventory-actions {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.form-order {
+  margin: 10px 0 14px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.form-order label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.form-order input,
+.form-order select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.gallery-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gallery-grid img {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
 @media (max-width: 1024px) {
   .app {
     padding: 16px;
@@ -176,6 +266,11 @@ button.secondary {
 
   .stats-grid,
   .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-order,
+  .gallery-grid {
     grid-template-columns: 1fr;
   }
 }
