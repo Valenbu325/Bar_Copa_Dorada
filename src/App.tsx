@@ -66,6 +66,7 @@ interface Order {
   status: 'OPEN' | 'CLOSED'
   totalAmount: number
   createdAt: string
+  details?: { productName: string; quantity: number }[]
 }
 
 interface BranchSales {
@@ -116,7 +117,7 @@ export default function App() {
   const [newUser, setNewUser] = useState({ fullName: '', email: '', password: '', roleCode: 'WAITER' as RoleCode, branchId: 0 })
   const [newProduct, setNewProduct] = useState({ sku: '', name: '', categoryId: 1, costPrice: '', salePrice: '' })
   const [movement, setMovement] = useState({ branchId: 0, productId: 0, movementType: 'IN', quantity: '', reason: '' })
-  const [newOrder, setNewOrder] = useState({ branchId: 0, waiterId: 0, notes: '', productId: 0, quantity: 1 })
+  const [newOrder, setNewOrder] = useState({ branchId: 0, waiterId: 0, notes: '', productId: 0, quantity: '1' })
   const [closePayload, setClosePayload] = useState({ cashierId: 0, paymentMethodCode: 'CASH' })
 
   const availableModules = session ? roleModules(session.rol) : []
@@ -161,12 +162,13 @@ export default function App() {
     if (rolesRes.ok) setRoles((await rolesRes.json()) as Role[])
   }
 
-  const loadModuleData = async () => {
+  const loadModuleData = async (forcedBranchId?: number) => {
     if (!session) return
     setLoading(true)
     setError('')
     try {
-      const branchIdParam = selectedBranchId ? `?branchId=${selectedBranchId}` : ''
+      const activeBranchId = forcedBranchId ?? Number(selectedBranchId || 0)
+      const branchIdParam = activeBranchId ? `?branchId=${activeBranchId}` : ''
       const [usersRes, productsRes, invRes, ordersRes, reportsRes] = await Promise.all([
         fetch(`${API}/users`),
         fetch(`${API}/products?sort=price`),
@@ -336,8 +338,9 @@ export default function App() {
       }),
     })
     if (res.ok) {
-      setNewOrder((prev) => ({ ...prev, notes: '', quantity: 1, productId: 0 }))
-      await loadModuleData()
+      setSelectedBranchId(branchId)
+      setNewOrder((prev) => ({ ...prev, branchId, notes: '', quantity: '1', productId: 0 }))
+      await loadModuleData(branchId)
       setSuccess('Order saved successfully.')
       setSavingOrder(false)
       return
@@ -607,7 +610,11 @@ export default function App() {
               <div className="card" style={{ marginBottom: '1rem' }}>
                 <h3>Create order</h3>
                 <div className="form-grid">
-                  <select value={newOrder.branchId || selectedBranchId} onChange={(e) => setNewOrder((s) => ({ ...s, branchId: Number(e.target.value) }))}>
+                  <select
+                    value={newOrder.branchId || selectedBranchId}
+                    onChange={(e) => setNewOrder((s) => ({ ...s, branchId: Number(e.target.value) }))}
+                    disabled={session.rol !== 'ADMIN'}
+                  >
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.name}
@@ -622,7 +629,18 @@ export default function App() {
                       </option>
                     ))}
                   </select>
-                  <input value={newOrder.quantity} onChange={(e) => setNewOrder((s) => ({ ...s, quantity: Number(e.target.value) || 1 }))} />
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={newOrder.quantity}
+                    onChange={(e) => setNewOrder((s) => ({ ...s, quantity: e.target.value }))}
+                    onBlur={() => {
+                      if (!newOrder.quantity || Number(newOrder.quantity) <= 0) {
+                        setNewOrder((s) => ({ ...s, quantity: '1' }))
+                      }
+                    }}
+                  />
                   <input placeholder="Notes" value={newOrder.notes} onChange={(e) => setNewOrder((s) => ({ ...s, notes: e.target.value }))} />
                   <button type="button" onClick={() => void createOrder()} disabled={savingOrder}>
                     {savingOrder ? 'Saving...' : 'Save order'}
@@ -636,6 +654,7 @@ export default function App() {
                       <th>ID</th>
                       <th>Branch</th>
                       <th>Waiter</th>
+                      <th>Items</th>
                       <th>Status</th>
                       <th>Total</th>
                       <th />
@@ -647,6 +666,11 @@ export default function App() {
                         <td>{o.id}</td>
                         <td>{o.branchName}</td>
                         <td>{o.waiterName}</td>
+                        <td>
+                          {o.details?.length
+                            ? o.details.map((d) => `${d.productName} x${d.quantity}`).join(', ')
+                            : 'No items'}
+                        </td>
                         <td>
                           <span className="badge">{o.status}</span>
                         </td>

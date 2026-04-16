@@ -6,7 +6,9 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -110,7 +112,7 @@ public class OrderRepository {
                 WHERE (? IS NULL OR o.branch_id = ?)
                 ORDER BY o.id DESC
                 """;
-        return jdbcTemplate.query(
+        List<OrderDto> orders = jdbcTemplate.query(
                 sql,
                 (rs, rowNum) -> new OrderDto(
                         rs.getLong("id"),
@@ -125,6 +127,48 @@ public class OrderRepository {
                         List.of()),
                 branchId,
                 branchId);
+        if (orders.isEmpty()) {
+            return orders;
+        }
+
+        List<Long> orderIds = orders.stream().map(OrderDto::id).toList();
+        String placeholders = String.join(",", orderIds.stream().map(id -> "?").toList());
+        String detailsSql = """
+                SELECT d.order_id, d.product_id, p.name AS product_name, d.quantity, d.unit_price, d.line_total
+                FROM order_details d
+                JOIN products p ON p.id = d.product_id
+                WHERE d.order_id IN (%s)
+                ORDER BY d.id
+                """.formatted(placeholders);
+        Map<Long, List<OrderDetailDto>> detailsByOrder = new HashMap<>();
+        jdbcTemplate.query(
+                detailsSql,
+                (rs) -> {
+                    Long orderId = rs.getLong("order_id");
+                    detailsByOrder
+                            .computeIfAbsent(orderId, ignored -> new ArrayList<>())
+                            .add(new OrderDetailDto(
+                                    rs.getLong("product_id"),
+                                    rs.getString("product_name"),
+                                    rs.getInt("quantity"),
+                                    rs.getBigDecimal("unit_price"),
+                                    rs.getBigDecimal("line_total")));
+                },
+                orderIds.toArray());
+
+        return orders.stream()
+                .map(order -> new OrderDto(
+                        order.id(),
+                        order.branchId(),
+                        order.branchName(),
+                        order.waiterId(),
+                        order.waiterName(),
+                        order.status(),
+                        order.totalAmount(),
+                        order.createdAt(),
+                        order.closedAt(),
+                        detailsByOrder.getOrDefault(order.id(), List.of())))
+                .toList();
     }
 
     public Optional<OrderDto> findOrder(Long orderId) {
