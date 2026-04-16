@@ -1,120 +1,128 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
+import { useMemo, useState } from 'react'
 import heroImg from './assets/hero.png'
 import './App.css'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [turnoAbierto, setTurnoAbierto] = useState(true)
+  const [mesaSeleccionada, setMesaSeleccionada] = useState(4)
+
+  const resumen = useMemo(
+    () => [
+      { label: 'Ventas del dia', value: '$1.250.000' },
+      { label: 'Pedidos activos', value: '12' },
+      { label: 'Mesas ocupadas', value: '8 de 15' },
+      { label: 'Caja', value: turnoAbierto ? 'Abierta' : 'Cerrada' },
+    ],
+    [turnoAbierto],
+  )
+
+  const mesas = [
+    { numero: 1, estado: 'Libre' },
+    { numero: 2, estado: 'Ocupada' },
+    { numero: 3, estado: 'Reservada' },
+    { numero: 4, estado: 'Ocupada' },
+    { numero: 5, estado: 'Libre' },
+    { numero: 6, estado: 'Ocupada' },
+  ]
+
+  const pedidosRecientes = [
+    { id: 'PD-201', mesa: 2, total: '$78.000', estado: 'En cocina' },
+    { id: 'PD-202', mesa: 4, total: '$52.000', estado: 'Listo para entregar' },
+    { id: 'PD-203', mesa: 6, total: '$96.000', estado: 'Pagado' },
+  ]
+
+  const inventario = [
+    { item: 'Cerveza artesanal', stock: '24 und', nivel: 'OK' },
+    { item: 'Carne para hamburguesa', stock: '8 und', nivel: 'Bajo' },
+    { item: 'Papas fritas', stock: '12 kg', nivel: 'OK' },
+    { item: 'Gaseosa 400ml', stock: '5 und', nivel: 'Critico' },
+  ]
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
+    <main className="app">
+      <header className="hero">
+        <div className="hero-copy">
+          <p className="kicker">Panel operativo</p>
+          <h1>COPA DORADA</h1>
+          <p className="subtitle">
+            Gestion de mesas, pedidos e inventario en tiempo real para el turno actual.
           </p>
+          <div className="hero-actions">
+            <button type="button" onClick={() => setTurnoAbierto((value) => !value)}>
+              {turnoAbierto ? 'Cerrar turno' : 'Abrir turno'}
+            </button>
+            <button type="button" className="secondary">
+              Registrar venta
+            </button>
+          </div>
         </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+        <div className="hero-media">
+          <img src={heroImg} width="240" height="240" alt="Marca COPA DORADA" />
+        </div>
+      </header>
+
+      <section className="stats-grid">
+        {resumen.map((item) => (
+          <article key={item.label} className="card stat-card">
+            <p>{item.label}</p>
+            <h2>{item.value}</h2>
+          </article>
+        ))}
       </section>
 
-      <div className="ticks"></div>
+      <section className="content-grid">
+        <article className="card">
+          <h3>Estado de mesas</h3>
+          <div className="mesas-grid">
+            {mesas.map((mesa) => (
+              <button
+                key={mesa.numero}
+                type="button"
+                className={`mesa ${mesaSeleccionada === mesa.numero ? 'active' : ''}`}
+                onClick={() => setMesaSeleccionada(mesa.numero)}
+              >
+                <span>Mesa {mesa.numero}</span>
+                <small>{mesa.estado}</small>
+              </button>
+            ))}
+          </div>
+          <p className="helper">Mesa seleccionada: {mesaSeleccionada}</p>
+        </article>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
+        <article className="card">
+          <h3>Pedidos recientes</h3>
+          <ul className="list">
+            {pedidosRecientes.map((pedido) => (
+              <li key={pedido.id}>
+                <div>
+                  <strong>{pedido.id}</strong>
+                  <p>Mesa {pedido.mesa}</p>
+                </div>
+                <div>
+                  <strong>{pedido.total}</strong>
+                  <p>{pedido.estado}</p>
+                </div>
+              </li>
+            ))}
           </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
+        </article>
+
+        <article className="card">
+          <h3>Inventario clave</h3>
+          <ul className="list inventory">
+            {inventario.map((row) => (
+              <li key={row.item}>
+                <div>
+                  <strong>{row.item}</strong>
+                  <p>{row.stock}</p>
+                </div>
+                <span className={`badge ${row.nivel.toLowerCase()}`}>{row.nivel}</span>
+              </li>
+            ))}
           </ul>
-        </div>
+        </article>
       </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    </main>
   )
 }
 
