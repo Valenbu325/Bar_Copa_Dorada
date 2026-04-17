@@ -148,7 +148,6 @@ export default function App() {
     if (branchesRes.ok) {
       const b = (await branchesRes.json()) as Branch[]
       setBranches(b)
-      if (!selectedBranchId && b[0]) setSelectedBranchId(b[0].id)
       if (session && session.rol !== 'ADMIN') {
         const userBranch = b.find((branch) => branch.name === session.sede)
         if (userBranch) {
@@ -440,6 +439,7 @@ export default function App() {
                 onChange={(e) => setSelectedBranchId(Number(e.target.value))}
                 disabled={session.rol !== 'ADMIN'}
               >
+                {session.rol === 'ADMIN' && <option value={0}>All branches</option>}
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}

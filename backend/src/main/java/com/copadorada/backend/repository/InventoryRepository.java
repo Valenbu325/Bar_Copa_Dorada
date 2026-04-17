@@ -62,17 +62,31 @@ public class InventoryRepository {
     }
 
     public void saveMovement(Long branchId, Long productId, String movementType, int quantity, String reason, Long userId) {
+        Long inventoryId = jdbcTemplate.queryForObject(
+                "SELECT id FROM inventory WHERE branch_id = ? AND product_id = ?",
+                Long.class, branchId, productId);
         jdbcTemplate.update(
                 """
-                INSERT INTO inventory_movements (branch_id, product_id, movement_type, quantity, reason, created_by)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO inventory_movements (inventory_id, branch_id, product_id, movement_type, quantity, reason, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
+                inventoryId,
                 branchId,
                 productId,
                 movementType,
                 quantity,
                 reason,
                 userId);
+    }
+
+    public void initForAllBranches(Long productId) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO inventory (branch_id, product_id, quantity)
+                SELECT id, ?, 0 FROM branches
+                ON CONFLICT (branch_id, product_id) DO NOTHING
+                """,
+                productId);
     }
 
     public List<InventoryStatusDto> statusRows() {

@@ -61,7 +61,10 @@ END
 FROM branches b
 CROSS JOIN products p;
 
-INSERT INTO inventory_movements (branch_id, product_id, movement_type, quantity, reason, created_by)
-SELECT b.id, p.id, 'IN', 30, 'Initial stock load', u.id
-FROM branches b, products p, users u
-WHERE b.code = 'GAL' AND p.sku = 'PRD-BEER-01' AND u.email = 'admin@copadorada.com';
+INSERT INTO inventory_movements (inventory_id, branch_id, product_id, movement_type, quantity, reason, created_by)
+SELECT i.id, b.id, p.id, 'IN', 30, 'Initial stock load', u.id
+FROM branches b
+JOIN products p ON p.sku = 'PRD-BEER-01'
+JOIN users u ON u.email = 'admin@copadorada.com'
+JOIN inventory i ON i.branch_id = b.id AND i.product_id = p.id
+WHERE b.code = 'GAL';

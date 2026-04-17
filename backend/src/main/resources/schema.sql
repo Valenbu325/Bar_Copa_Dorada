@@ -1,3 +1,8 @@
+-- ============================================================
+-- Copa Dorada - Bar Management System
+-- Database Schema - Pragma Dev Studio
+-- ============================================================
+
 DROP TABLE IF EXISTS audit_logs CASCADE;
 DROP TABLE IF EXISTS payments CASCADE;
 DROP TABLE IF EXISTS order_details CASCADE;
@@ -12,115 +17,157 @@ DROP TABLE IF EXISTS status_catalog CASCADE;
 DROP TABLE IF EXISTS branches CASCADE;
 DROP TABLE IF EXISTS roles CASCADE;
 
+-- ------------------------------------------------------------
+-- ROLES
+-- ------------------------------------------------------------
 CREATE TABLE roles (
-  id BIGSERIAL PRIMARY KEY,
-  code VARCHAR(40) NOT NULL UNIQUE,
+  id   BIGSERIAL    PRIMARY KEY,
+  code VARCHAR(40)  NOT NULL UNIQUE,
   name VARCHAR(100) NOT NULL
 );
 
+-- ------------------------------------------------------------
+-- BRANCHES (Sedes)
+-- ------------------------------------------------------------
 CREATE TABLE branches (
-  id BIGSERIAL PRIMARY KEY,
-  code VARCHAR(20) NOT NULL UNIQUE,
+  id   BIGSERIAL    PRIMARY KEY,
+  code VARCHAR(20)  NOT NULL UNIQUE,
   name VARCHAR(120) NOT NULL UNIQUE,
-  city VARCHAR(80) NOT NULL DEFAULT 'Bogota'
+  city VARCHAR(80)  NOT NULL DEFAULT 'Bogota'
 );
 
+-- ------------------------------------------------------------
+-- USERS
+-- ------------------------------------------------------------
 CREATE TABLE users (
-  id BIGSERIAL PRIMARY KEY,
-  full_name VARCHAR(160) NOT NULL,
-  email VARCHAR(180) NOT NULL UNIQUE,
-  password VARCHAR(200) NOT NULL,
-  role_id BIGINT NOT NULL REFERENCES roles (id),
-  branch_id BIGINT NOT NULL REFERENCES branches (id),
-  active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  id         BIGSERIAL    PRIMARY KEY,
+  full_name  VARCHAR(160) NOT NULL,
+  email      VARCHAR(180) NOT NULL UNIQUE,
+  password   VARCHAR(200) NOT NULL,
+  role_id    BIGINT       NOT NULL REFERENCES roles (id),
+  branch_id  BIGINT       NOT NULL REFERENCES branches (id),
+  active     BOOLEAN      NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
+-- ------------------------------------------------------------
+-- CATEGORIES
+-- ------------------------------------------------------------
 CREATE TABLE categories (
-  id BIGSERIAL PRIMARY KEY,
+  id   BIGSERIAL    PRIMARY KEY,
   name VARCHAR(120) NOT NULL UNIQUE
 );
 
+-- ------------------------------------------------------------
+-- PRODUCTS  (catálogo único, precios iguales en todas las sedes)
+-- ------------------------------------------------------------
 CREATE TABLE products (
-  id BIGSERIAL PRIMARY KEY,
-  sku VARCHAR(30) NOT NULL UNIQUE,
-  name VARCHAR(200) NOT NULL,
-  category_id BIGINT NOT NULL REFERENCES categories (id),
-  cost_price NUMERIC(12,2) NOT NULL,
-  sale_price NUMERIC(12,2) NOT NULL,
-  active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  id          BIGSERIAL      PRIMARY KEY,
+  sku         VARCHAR(30)    NOT NULL UNIQUE,
+  name        VARCHAR(200)   NOT NULL,
+  category_id BIGINT         NOT NULL REFERENCES categories (id),
+  cost_price  NUMERIC(12,2)  NOT NULL,
+  sale_price  NUMERIC(12,2)  NOT NULL,
+  active      BOOLEAN        NOT NULL DEFAULT TRUE,
+  created_at  TIMESTAMP      NOT NULL DEFAULT NOW()
 );
 
+-- ------------------------------------------------------------
+-- INVENTORY  (stock independiente por sede)
+-- Una fila por (branch_id, product_id) → inventario de esa sede
+-- ------------------------------------------------------------
 CREATE TABLE inventory (
-  id BIGSERIAL PRIMARY KEY,
-  branch_id BIGINT NOT NULL REFERENCES branches (id),
-  product_id BIGINT NOT NULL REFERENCES products (id),
-  quantity INTEGER NOT NULL DEFAULT 0,
-  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  UNIQUE (branch_id, product_id)
+  id         BIGSERIAL  PRIMARY KEY,
+  branch_id  BIGINT     NOT NULL REFERENCES branches (id),
+  product_id BIGINT     NOT NULL REFERENCES products (id),
+  quantity   INTEGER    NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+  updated_at TIMESTAMP  NOT NULL DEFAULT NOW(),
+  UNIQUE (branch_id, product_id)          -- garantiza 1 fila por producto por sede
 );
 
+-- ------------------------------------------------------------
+-- INVENTORY_MOVEMENTS  (trazabilidad de movimientos por sede)
+-- inventory_id apunta a la fila exacta de inventario afectada
+-- ------------------------------------------------------------
 CREATE TABLE inventory_movements (
-  id BIGSERIAL PRIMARY KEY,
-  branch_id BIGINT NOT NULL REFERENCES branches (id),
-  product_id BIGINT NOT NULL REFERENCES products (id),
-  movement_type VARCHAR(10) NOT NULL CHECK (movement_type IN ('IN','OUT')),
-  quantity INTEGER NOT NULL CHECK (quantity > 0),
-  reason VARCHAR(180),
-  created_by BIGINT REFERENCES users (id),
-  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  id            BIGSERIAL    PRIMARY KEY,
+  inventory_id  BIGINT       NOT NULL REFERENCES inventory (id),   -- FK hacia inventario de la sede
+  branch_id     BIGINT       NOT NULL REFERENCES branches (id),
+  product_id    BIGINT       NOT NULL REFERENCES products (id),
+  movement_type VARCHAR(10)  NOT NULL CHECK (movement_type IN ('IN', 'OUT')),
+  quantity      INTEGER      NOT NULL CHECK (quantity > 0),
+  reason        VARCHAR(180),
+  created_by    BIGINT       REFERENCES users (id),
+  created_at    TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
+-- ------------------------------------------------------------
+-- STATUS_CATALOG
+-- ------------------------------------------------------------
 CREATE TABLE status_catalog (
-  id BIGSERIAL PRIMARY KEY,
+  id     BIGSERIAL   PRIMARY KEY,
   module VARCHAR(50) NOT NULL,
-  code VARCHAR(40) NOT NULL,
-  label VARCHAR(90) NOT NULL,
-  UNIQUE(module, code)
+  code   VARCHAR(40) NOT NULL,
+  label  VARCHAR(90) NOT NULL,
+  UNIQUE (module, code)
 );
 
+-- ------------------------------------------------------------
+-- ORDERS
+-- ------------------------------------------------------------
 CREATE TABLE orders (
-  id BIGSERIAL PRIMARY KEY,
-  branch_id BIGINT NOT NULL REFERENCES branches (id),
-  waiter_id BIGINT NOT NULL REFERENCES users (id),
-  status_id BIGINT NOT NULL REFERENCES status_catalog (id),
-  total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-  notes VARCHAR(300),
-  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  closed_at TIMESTAMP
+  id           BIGSERIAL      PRIMARY KEY,
+  branch_id    BIGINT         NOT NULL REFERENCES branches (id),
+  waiter_id    BIGINT         NOT NULL REFERENCES users (id),
+  status_id    BIGINT         NOT NULL REFERENCES status_catalog (id),
+  total_amount NUMERIC(12,2)  NOT NULL DEFAULT 0,
+  notes        VARCHAR(300),
+  created_at   TIMESTAMP      NOT NULL DEFAULT NOW(),
+  closed_at    TIMESTAMP
 );
 
+-- ------------------------------------------------------------
+-- ORDER_DETAILS
+-- ------------------------------------------------------------
 CREATE TABLE order_details (
-  id BIGSERIAL PRIMARY KEY,
-  order_id BIGINT NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
-  product_id BIGINT NOT NULL REFERENCES products (id),
-  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  id         BIGSERIAL     PRIMARY KEY,
+  order_id   BIGINT        NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
+  product_id BIGINT        NOT NULL REFERENCES products (id),
+  quantity   INTEGER       NOT NULL CHECK (quantity > 0),
   unit_price NUMERIC(12,2) NOT NULL,
   line_total NUMERIC(12,2) NOT NULL
 );
 
+-- ------------------------------------------------------------
+-- PAYMENT_METHODS
+-- ------------------------------------------------------------
 CREATE TABLE payment_methods (
-  id BIGSERIAL PRIMARY KEY,
-  code VARCHAR(40) NOT NULL UNIQUE,
+  id    BIGSERIAL   PRIMARY KEY,
+  code  VARCHAR(40) NOT NULL UNIQUE,
   label VARCHAR(80) NOT NULL
 );
 
+-- ------------------------------------------------------------
+-- PAYMENTS
+-- ------------------------------------------------------------
 CREATE TABLE payments (
-  id BIGSERIAL PRIMARY KEY,
-  order_id BIGINT NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
-  payment_method_id BIGINT NOT NULL REFERENCES payment_methods (id),
-  amount NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
-  paid_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  paid_by BIGINT REFERENCES users (id)
+  id                BIGSERIAL     PRIMARY KEY,
+  order_id          BIGINT        NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
+  payment_method_id BIGINT        NOT NULL REFERENCES payment_methods (id),
+  amount            NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
+  paid_at           TIMESTAMP     NOT NULL DEFAULT NOW(),
+  paid_by           BIGINT        REFERENCES users (id)
 );
 
+-- ------------------------------------------------------------
+-- AUDIT_LOGS
+-- ------------------------------------------------------------
 CREATE TABLE audit_logs (
-  id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT REFERENCES users (id),
-  action VARCHAR(120) NOT NULL,
-  entity VARCHAR(80) NOT NULL,
-  entity_id BIGINT,
-  details TEXT,
-  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  id         BIGSERIAL    PRIMARY KEY,
+  user_id    BIGINT       REFERENCES users (id),
+  action     VARCHAR(120) NOT NULL,
+  entity     VARCHAR(80)  NOT NULL,
+  entity_id  BIGINT,
+  details    TEXT,
+  created_at TIMESTAMP    NOT NULL DEFAULT NOW()
 );
