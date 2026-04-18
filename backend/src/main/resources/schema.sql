@@ -2,6 +2,7 @@ DROP TABLE IF EXISTS audit_logs CASCADE;
 DROP TABLE IF EXISTS payments CASCADE;
 DROP TABLE IF EXISTS order_details CASCADE;
 DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS bar_tables CASCADE;
 DROP TABLE IF EXISTS inventory_movements CASCADE;
 DROP TABLE IF EXISTS inventory CASCADE;
 DROP TABLE IF EXISTS products CASCADE;
@@ -80,11 +81,19 @@ CREATE TABLE status_catalog (
   UNIQUE(module, code)
 );
 
+CREATE TABLE bar_tables (
+  id BIGSERIAL PRIMARY KEY,
+  branch_id BIGINT NOT NULL REFERENCES branches (id),
+  number VARCHAR(20) NOT NULL,
+  UNIQUE (branch_id, number)
+);
+
 CREATE TABLE orders (
   id BIGSERIAL PRIMARY KEY,
   branch_id BIGINT NOT NULL REFERENCES branches (id),
   waiter_id BIGINT NOT NULL REFERENCES users (id),
   status_id BIGINT NOT NULL REFERENCES status_catalog (id),
+  table_id BIGINT REFERENCES bar_tables (id),
   total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   notes VARCHAR(300),
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),

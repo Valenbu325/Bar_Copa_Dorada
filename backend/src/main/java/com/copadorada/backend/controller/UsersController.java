@@ -1,6 +1,7 @@
 package com.copadorada.backend.controller;
 
 import com.copadorada.backend.dto.CreateUserRequest;
+import com.copadorada.backend.dto.UpdateUserRequest;
 import com.copadorada.backend.dto.UserDto;
 import com.copadorada.backend.service.UserService;
 import java.util.List;
@@ -8,7 +9,10 @@ import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,6 +36,18 @@ public class UsersController {
     public ResponseEntity<Map<String, Long>> createUser(@RequestBody CreateUserRequest request) {
         long id = userService.createUser(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("id", id));
+    }
+
+    @PatchMapping("/{id}/active")
+    public ResponseEntity<Void> toggleActive(@PathVariable Long id) {
+        userService.toggleUserActive(id);
+        return ResponseEntity.ok().build();
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<Void> updateUser(@PathVariable Long id, @RequestBody UpdateUserRequest request) {
+        userService.updateUser(id, request);
+        return ResponseEntity.ok().build();
     }
 }
 

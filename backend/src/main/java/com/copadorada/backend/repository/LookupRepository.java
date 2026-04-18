@@ -1,6 +1,7 @@
 package com.copadorada.backend.repository;
 
 import com.copadorada.backend.dto.BranchDto;
+import com.copadorada.backend.dto.CategoryDto;
 import com.copadorada.backend.dto.RoleDto;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -31,6 +32,12 @@ public class LookupRepository {
                         rs.getLong("id"),
                         rs.getString("code"),
                         rs.getString("name")));
+    }
+
+    public List<CategoryDto> getCategories() {
+        return jdbcTemplate.query(
+                "SELECT id, name FROM categories ORDER BY name",
+                (rs, rowNum) -> new CategoryDto(rs.getLong("id"), rs.getString("name")));
     }
 }
 

@@ -1,6 +1,7 @@
 package com.copadorada.backend.controller;
 
 import com.copadorada.backend.dto.BranchDto;
+import com.copadorada.backend.dto.CategoryDto;
 import com.copadorada.backend.dto.RoleDto;
 import com.copadorada.backend.service.LookupService;
 import java.util.List;
@@ -26,6 +27,11 @@ public class LookupController {
     @GetMapping("/roles")
     public List<RoleDto> roles() {
         return lookupService.getRoles();
+    }
+
+    @GetMapping("/categories")
+    public List<CategoryDto> categories() {
+        return lookupService.getCategories();
     }
 }
 

@@ -55,6 +55,15 @@ public class ProductRepository {
         return id;
     }
 
+    public void deleteRelatedRows(Long productId) {
+        jdbcTemplate.update("DELETE FROM inventory_movements WHERE product_id = ?", productId);
+        jdbcTemplate.update("DELETE FROM inventory WHERE product_id = ?", productId);
+    }
+
+    public int delete(Long productId) {
+        return jdbcTemplate.update("DELETE FROM products WHERE id = ?", productId);
+    }
+
     public Map<Long, ProductDto> findByIds(List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             return Map.of();

@@ -61,6 +61,11 @@ END
 FROM branches b
 CROSS JOIN products p;
 
+INSERT INTO bar_tables (branch_id, number)
+SELECT b.id, t.number FROM branches b
+CROSS JOIN (VALUES ('T-01'),('T-02'),('T-03'),('T-04'),('T-05')) AS t(number)
+WHERE b.code IN ('GAL','RES','ZT');
+
 INSERT INTO inventory_movements (branch_id, product_id, movement_type, quantity, reason, created_by)
 SELECT b.id, p.id, 'IN', 30, 'Initial stock load', u.id
 FROM branches b, products p, users u

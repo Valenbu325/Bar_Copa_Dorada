@@ -26,6 +26,10 @@ public class InventoryService {
         return inventoryRepository.getInventory(branchId);
     }
 
+    public void resetStock(Long inventoryId) {
+        inventoryRepository.resetStock(inventoryId);
+    }
+
     @Transactional
     public void createMovement(InventoryMovementRequest request) {
         if (request.branchId() == null || request.productId() == null || request.quantity() == null) {

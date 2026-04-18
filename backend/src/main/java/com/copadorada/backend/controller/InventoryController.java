@@ -10,7 +10,10 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -49,6 +52,18 @@ public class InventoryController {
     public ResponseEntity<Void> addMovement(@RequestBody InventoryMovementRequest request) {
         inventoryService.createMovement(request);
         return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
+
+    @DeleteMapping("/products/{id}")
+    public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
+        productService.deleteProduct(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/inventory/{id}/reset")
+    public ResponseEntity<Void> resetStock(@PathVariable Long id) {
+        inventoryService.resetStock(id);
+        return ResponseEntity.ok().build();
     }
 }
 

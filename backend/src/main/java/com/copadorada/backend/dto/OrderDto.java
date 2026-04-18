@@ -10,6 +10,7 @@ public record OrderDto(
         String branchName,
         Long waiterId,
         String waiterName,
+        String tableNumber,
         String status,
         BigDecimal totalAmount,
         Instant createdAt,

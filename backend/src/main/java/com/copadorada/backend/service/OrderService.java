@@ -73,7 +73,7 @@ public class OrderService {
         }
 
         Long openStatusId = orderRepository.getStatusId("OPEN");
-        long orderId = orderRepository.createOrder(request.branchId(), request.waiterId(), openStatusId, request.notes());
+        long orderId = orderRepository.createOrder(request.branchId(), request.waiterId(), openStatusId, request.tableId(), request.notes());
 
         BigDecimal total = BigDecimal.ZERO;
         for (CreateOrderItemRequest item : request.items()) {

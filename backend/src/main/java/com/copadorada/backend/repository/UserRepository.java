@@ -1,6 +1,7 @@
 package com.copadorada.backend.repository;
 
 import com.copadorada.backend.dto.CreateUserRequest;
+import com.copadorada.backend.dto.UpdateUserRequest;
 import com.copadorada.backend.dto.UserDto;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -78,6 +79,19 @@ public class UserRepository {
                 "SELECT branch_id FROM users WHERE id = ?",
                 Long.class,
                 userId);
+    }
+
+    public void toggleActive(Long userId) {
+        jdbcTemplate.update("UPDATE users SET active = NOT active WHERE id = ?", userId);
+    }
+
+    public void update(Long userId, UpdateUserRequest request) {
+        Long roleId = jdbcTemplate.queryForObject(
+                "SELECT id FROM roles WHERE code = ?", Long.class, request.roleCode());
+        if (roleId == null) throw new IllegalArgumentException("Role not found");
+        jdbcTemplate.update(
+                "UPDATE users SET full_name = ?, role_id = ?, branch_id = ? WHERE id = ?",
+                request.fullName(), roleId, request.branchId(), userId);
     }
 }
 

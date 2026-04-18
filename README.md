@@ -65,7 +65,7 @@ Tablas implementadas:
 
 ## Credenciales demo
 
-- Admin: `admin@copadorada.com / admin1234`
+- Admin: ` admin@copadorada.com / admin1234`
 - Waiter: `mesero@copadorada.com / mesero1234`
 - Cashier: `cajero@copadorada.com / cajero1234`
 
@@ -76,7 +76,7 @@ Requisitos:
 - Node.js 20+
 - npm 10+
 - Java 21
-- Maven 3.9+
+- mvn
 - Docker Desktop activo
 
 1. Instalar dependencias frontend:

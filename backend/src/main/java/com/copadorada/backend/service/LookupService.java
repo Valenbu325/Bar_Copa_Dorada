@@ -1,6 +1,7 @@
 package com.copadorada.backend.service;
 
 import com.copadorada.backend.dto.BranchDto;
+import com.copadorada.backend.dto.CategoryDto;
 import com.copadorada.backend.dto.RoleDto;
 import com.copadorada.backend.repository.LookupRepository;
 import java.util.List;
@@ -21,6 +22,10 @@ public class LookupService {
 
     public List<BranchDto> getBranches() {
         return lookupRepository.getBranches();
+    }
+
+    public List<CategoryDto> getCategories() {
+        return lookupRepository.getCategories();
     }
 }
 

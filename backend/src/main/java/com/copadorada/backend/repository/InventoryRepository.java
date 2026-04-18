@@ -15,50 +15,56 @@ public class InventoryRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    private static final org.springframework.jdbc.core.RowMapper<InventoryItemDto> INV_ROW_MAPPER =
+            (rs, rowNum) -> new InventoryItemDto(
+                    rs.getLong("id"),
+                    rs.getLong("branch_id"),
+                    rs.getString("branch_name"),
+                    rs.getLong("product_id"),
+                    rs.getString("product_name"),
+                    rs.getString("category"),
+                    rs.getInt("quantity"));
+
+    private static final String INV_SELECT = """
+            SELECT i.id, b.id AS branch_id, b.name AS branch_name,
+                   p.id AS product_id, p.name AS product_name, c.name AS category, i.quantity
+            FROM inventory i
+            JOIN branches b ON b.id = i.branch_id
+            JOIN products p ON p.id = i.product_id
+            JOIN categories c ON c.id = p.category_id
+            """;
+
     public List<InventoryItemDto> getInventory(Long branchId) {
-        String sql = """
-                SELECT i.id, b.id AS branch_id, b.name AS branch_name,
-                       p.id AS product_id, p.name AS product_name, c.name AS category, i.quantity
-                FROM inventory i
-                JOIN branches b ON b.id = i.branch_id
-                JOIN products p ON p.id = i.product_id
-                JOIN categories c ON c.id = p.category_id
-                WHERE (? IS NULL OR b.id = ?)
-                ORDER BY p.name
-                """;
+        if (branchId == null) {
+            return jdbcTemplate.query(INV_SELECT + "ORDER BY p.name", INV_ROW_MAPPER);
+        }
         return jdbcTemplate.query(
-                sql,
-                (rs, rowNum) -> new InventoryItemDto(
-                        rs.getLong("id"),
-                        rs.getLong("branch_id"),
-                        rs.getString("branch_name"),
-                        rs.getLong("product_id"),
-                        rs.getString("product_name"),
-                        rs.getString("category"),
-                        rs.getInt("quantity")),
-                branchId,
+                INV_SELECT + "WHERE b.id = ? ORDER BY p.name",
+                INV_ROW_MAPPER,
                 branchId);
     }
 
     public int getQuantity(Long branchId, Long productId) {
-        Integer quantity = jdbcTemplate.queryForObject(
+        List<Integer> rows = jdbcTemplate.query(
                 "SELECT quantity FROM inventory WHERE branch_id = ? AND product_id = ?",
-                Integer.class,
+                (rs, rowNum) -> rs.getInt("quantity"),
                 branchId,
                 productId);
-        return quantity == null ? 0 : quantity;
+        return rows.isEmpty() ? 0 : rows.get(0);
     }
 
     public void updateStock(Long branchId, Long productId, int delta) {
         jdbcTemplate.update(
                 """
-                UPDATE inventory
-                SET quantity = quantity + ?, updated_at = NOW()
-                WHERE branch_id = ? AND product_id = ?
+                INSERT INTO inventory (branch_id, product_id, quantity)
+                VALUES (?, ?, ?)
+                ON CONFLICT (branch_id, product_id)
+                DO UPDATE SET quantity = inventory.quantity + ?, updated_at = NOW()
                 """,
-                delta,
                 branchId,
-                productId);
+                productId,
+                delta,
+                delta);
     }
 
     public void saveMovement(Long branchId, Long productId, String movementType, int quantity, String reason, Long userId) {
@@ -73,6 +79,20 @@ public class InventoryRepository {
                 quantity,
                 reason,
                 userId);
+    }
+
+    public void resetStock(Long inventoryId) {
+        jdbcTemplate.update("UPDATE inventory SET quantity = 0 WHERE id = ?", inventoryId);
+    }
+
+    public void initializeForAllBranches(long productId) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO inventory (branch_id, product_id, quantity)
+                SELECT id, ?, 0 FROM branches
+                ON CONFLICT (branch_id, product_id) DO NOTHING
+                """,
+                productId);
     }
 
     public List<InventoryStatusDto> statusRows() {

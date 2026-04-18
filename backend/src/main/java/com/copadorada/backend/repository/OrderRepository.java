@@ -22,17 +22,18 @@ public class OrderRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public long createOrder(Long branchId, Long waiterId, Long statusId, String notes) {
+    public long createOrder(Long branchId, Long waiterId, Long statusId, Long tableId, String notes) {
         Long id = jdbcTemplate.queryForObject(
                 """
-                INSERT INTO orders (branch_id, waiter_id, status_id, notes)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO orders (branch_id, waiter_id, status_id, table_id, notes)
+                VALUES (?, ?, ?, ?, ?)
                 RETURNING id
                 """,
                 Long.class,
                 branchId,
                 waiterId,
                 statusId,
+                tableId,
                 notes);
         if (id == null) {
             throw new IllegalStateException("Could not create order");
@@ -103,12 +104,14 @@ public class OrderRepository {
         String sql = """
                 SELECT o.id, b.id AS branch_id, b.name AS branch_name,
                        u.id AS waiter_id, u.full_name AS waiter_name,
+                       t.number AS table_number,
                        s.code AS status_code,
                        o.total_amount, o.created_at, o.closed_at
                 FROM orders o
                 JOIN branches b ON b.id = o.branch_id
                 JOIN users u ON u.id = o.waiter_id
                 JOIN status_catalog s ON s.id = o.status_id
+                LEFT JOIN bar_tables t ON t.id = o.table_id
                 WHERE (? IS NULL OR o.branch_id = ?)
                 ORDER BY o.id DESC
                 """;
@@ -120,6 +123,7 @@ public class OrderRepository {
                         rs.getString("branch_name"),
                         rs.getLong("waiter_id"),
                         rs.getString("waiter_name"),
+                        rs.getString("table_number"),
                         rs.getString("status_code"),
                         rs.getBigDecimal("total_amount"),
                         toInstant(rs.getTimestamp("created_at")),
@@ -163,6 +167,7 @@ public class OrderRepository {
                         order.branchName(),
                         order.waiterId(),
                         order.waiterName(),
+                        order.tableNumber(),
                         order.status(),
                         order.totalAmount(),
                         order.createdAt(),
@@ -175,12 +180,14 @@ public class OrderRepository {
         String sql = """
                 SELECT o.id, b.id AS branch_id, b.name AS branch_name,
                        u.id AS waiter_id, u.full_name AS waiter_name,
+                       t.number AS table_number,
                        s.code AS status_code,
                        o.total_amount, o.created_at, o.closed_at
                 FROM orders o
                 JOIN branches b ON b.id = o.branch_id
                 JOIN users u ON u.id = o.waiter_id
                 JOIN status_catalog s ON s.id = o.status_id
+                LEFT JOIN bar_tables t ON t.id = o.table_id
                 WHERE o.id = ?
                 """;
         List<OrderDto> rows = jdbcTemplate.query(
@@ -191,6 +198,7 @@ public class OrderRepository {
                         rs.getString("branch_name"),
                         rs.getLong("waiter_id"),
                         rs.getString("waiter_name"),
+                        rs.getString("table_number"),
                         rs.getString("status_code"),
                         rs.getBigDecimal("total_amount"),
                         toInstant(rs.getTimestamp("created_at")),
@@ -222,6 +230,7 @@ public class OrderRepository {
                 base.branchName(),
                 base.waiterId(),
                 base.waiterName(),
+                base.tableNumber(),
                 base.status(),
                 base.totalAmount(),
                 base.createdAt(),

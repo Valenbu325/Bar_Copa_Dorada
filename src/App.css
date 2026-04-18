@@ -375,17 +375,134 @@ button:disabled {
 .form-grid input,
 .form-grid select,
 .form-grid textarea {
-  padding: 0.5rem;
+  padding: 0.5rem 0.65rem;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--panel-2);
   color: var(--text);
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 0.88rem;
+}
+
+.card input,
+.card select,
+.card textarea {
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 0.88rem;
+}
+
+.card input::placeholder,
+.card textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.75;
 }
 
 .form-actions {
+  grid-column: span 2;
   display: flex;
+  justify-content: space-between;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.inventory-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.btn-primary {
+  background: linear-gradient(90deg, #a16207, #7c2d12);
+  color: #fff;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-primary:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: rgba(166, 97, 26, 0.15);
+  color: var(--text);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.full {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.28);
+}
+
+.movement-type {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 0.25rem;
+}
+
+.movement-type button {
+  flex: 1;
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.movement-type button.active-entry {
+  background: #10b981;
+  color: #fff;
+  border-color: #10b981;
+}
+
+.movement-type button.active-exit {
+  background: #ef4444;
+  color: #fff;
+  border-color: #ef4444;
+}
+
+.table-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.table-header input {
+  flex: 1;
+  min-width: 180px;
 }
 
 .badge {
@@ -400,6 +517,10 @@ button:disabled {
   font-size: 1.6rem;
   margin: 0.2rem 0 0.4rem;
   font-weight: 700;
+}
+
+.kpi-card {
+  border-radius: 10px;
 }
 
 .pill-ok {
